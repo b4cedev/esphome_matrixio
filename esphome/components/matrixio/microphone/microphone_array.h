@@ -8,8 +8,9 @@
 #include "../matrixio.h"
 #include "../wishbone.h"
 #include "../light/everloop.h"
+#include "direction_estimator.h"
 
-#include <complex>
+#include <cmath>
 #include <vector>
 
 namespace esphome {
@@ -34,6 +35,10 @@ public:
   void set_level_light(light::LightState *ring) {
     this->level_light_ = static_cast<Everloop *>(ring->get_output());
   }
+  // Sensitivity of the direction detection, may be called at runtime
+  void set_direction_confidence(float confidence) { this->direction_.valid_threshold = confidence; }
+  void set_direction_level_db(float db) { this->direction_.min_band_over_floor = std::pow(10.0f, db / 10.0f); }
+  void set_direction_min_frames(uint8_t frames) { this->min_valid_frames_ = frames; }
   void set_led_mapping(uint8_t offset, bool reverse) {
     this->led_offset_ = offset;
     this->led_reverse_ = reverse;
@@ -44,8 +49,7 @@ private:
   void stop_();
   void read_();
   void read_all_channels_();
-  void show_levels_();
-  void log_direction_();
+  void show_direction_(const DirectionResult &result);
   void write_fir_coeffs();
   void write_sampling_rate_and_gain();
 
@@ -58,10 +62,13 @@ private:
   uint8_t led_offset_{0};
   bool led_reverse_{false};
   std::vector<uint8_t> raw_;
-  float levels_db_[MICROPHONE_CHANNELS]{};
-  float bias_db_[MICROPHONE_CHANNELS]{};  // slow average of each channel's offset to the mean
-  std::complex<float> cross_[MICROPHONE_CHANNELS];  // sum of X_ch * conj(X_0) at 500 Hz over 16 frames
+  DirectionEstimator direction_;
+  float beam_angle_{0.0f};
+  float beam_level_{0.0f};
+  uint8_t valid_frames_{0};
+  uint8_t min_valid_frames_{3};
   uint32_t read_us_{0};
+  uint32_t dsp_us_{0};
   uint32_t frame_count_{0};
 };
 

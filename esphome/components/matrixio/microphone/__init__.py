@@ -13,6 +13,9 @@ mics = matrixio_ns.class_("Microphone", microphone.Microphone, wb_device, cg.Com
 CONF_LEVEL_LIGHT = "level_light"
 CONF_LED_OFFSET = "led_offset"
 CONF_LED_REVERSE = "led_reverse"
+CONF_DIRECTION_CONFIDENCE = "direction_confidence"
+CONF_DIRECTION_LEVEL_DB = "direction_level_db"
+CONF_DIRECTION_MIN_FRAMES = "direction_min_frames"
 
 CONFIG_SCHEMA = microphone.MICROPHONE_SCHEMA.extend(
     {
@@ -22,6 +25,13 @@ CONFIG_SCHEMA = microphone.MICROPHONE_SCHEMA.extend(
         # Everloop LED 0 sits on the left (USB port up) and the LEDs count clockwise
         cv.Optional(CONF_LED_OFFSET, default=9): cv.int_range(min=0, max=17),
         cv.Optional(CONF_LED_REVERSE, default=True): cv.boolean,
+        # Direction detection sensitivity (also changeable at runtime, see set_direction_*)
+        # How coherent the sound must be across the microphones, 0.2 (very sensitive) .. 0.95 (strict)
+        cv.Optional(CONF_DIRECTION_CONFIDENCE, default=0.62): cv.float_range(min=0.2, max=0.95),
+        # How far the sound must be above the tracked background level
+        cv.Optional(CONF_DIRECTION_LEVEL_DB, default=9.0): cv.float_range(min=0.0, max=30.0),
+        # How many frames (32 ms each) in a row are needed before a direction is shown
+        cv.Optional(CONF_DIRECTION_MIN_FRAMES, default=3): cv.int_range(min=1, max=30),
     }
 ).extend(wb_device_schema())
 
@@ -52,3 +62,6 @@ async def to_code(config):
         ring = await cg.get_variable(config[CONF_LEVEL_LIGHT])
         cg.add(var.set_level_light(ring))
         cg.add(var.set_led_mapping(config[CONF_LED_OFFSET], config[CONF_LED_REVERSE]))
+        cg.add(var.set_direction_confidence(config[CONF_DIRECTION_CONFIDENCE]))
+        cg.add(var.set_direction_level_db(config[CONF_DIRECTION_LEVEL_DB]))
+        cg.add(var.set_direction_min_frames(config[CONF_DIRECTION_MIN_FRAMES]))
