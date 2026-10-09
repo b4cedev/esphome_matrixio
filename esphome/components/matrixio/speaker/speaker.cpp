@@ -12,8 +12,6 @@ namespace matrixio {
 static const size_t BUFFER_COUNT = 32;
 // Must be above the priority of the ESPHome main loop task (1), otherwise the FIFO runs dry.
 static const UBaseType_t PLAYER_TASK_PRIORITY = 2;
-// The player task ends after this much time without new audio data.
-static const uint32_t IDLE_TIMEOUT_MS = 4000;
 static const uint32_t POLL_INTERVAL_MS = 10;
 // Safety margin that keeps the FIFO from ever becoming completely full (see get_fpga_fifo_fill_()).
 static const uint32_t FIFO_MARGIN_WORDS = 64;
@@ -39,6 +37,11 @@ void Speaker::dump_config() {
     ESP_LOGCONFIG(TAG, "  Output not set");
   }
   ESP_LOGCONFIG(TAG, "  Volume: %d%%", (int) (this->volume_ * 100.0f + 0.5f));
+  ESP_LOGCONFIG(TAG, "  Idle timeout: %ums", (unsigned) this->idle_timeout_ms_.load());
+}
+
+void Speaker::set_idle_timeout(uint32_t timeout_ms) {
+  this->idle_timeout_ms_ = std::min<uint32_t>(std::max<uint32_t>(timeout_ms, 100), 10000);
 }
 
 void Speaker::start() {
@@ -160,8 +163,8 @@ void Speaker::player_task(void *params) {
         draining = true;
       } else {
         idle_ms += POLL_INTERVAL_MS;
-        if (idle_ms >= IDLE_TIMEOUT_MS)
-          break;  // End of audio from main thread
+        if (idle_ms >= this_speaker->idle_timeout_ms_)
+          break;  // No audio for idle_timeout_ms_: end of the response
       }
       continue;
     }

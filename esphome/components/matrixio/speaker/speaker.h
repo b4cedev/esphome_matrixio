@@ -53,6 +53,9 @@ class Speaker : public speaker::Speaker, public matrixio::WishboneDevice, public
 
   void set_initial_volume(uint8_t volume_percentage) { this->volume_ = volume_percentage / 100.0f; }
   void set_output(OutputSelector output_selector) { this->output_ = output_selector; }
+  /// Playback stops after this many milliseconds without new audio (100..10000).
+  void set_idle_timeout(uint32_t timeout_ms);
+  uint32_t get_idle_timeout() const { return this->idle_timeout_ms_; }
 
   bool set_pcm_sampling_frequency(uint32_t sampling_frequency);
   uint32_t read_pcm_sampling_frequency();
@@ -79,6 +82,8 @@ class Speaker : public speaker::Speaker, public matrixio::WishboneDevice, public
   std::atomic<bool> finish_requested_{false};
   std::atomic<bool> paused_{false};
   std::atomic<uint16_t> fifo_fill_{0};
+  // written from the main loop (e.g. by Home Assistant), read by the player task
+  std::atomic<uint32_t> idle_timeout_ms_{500};
 
   uint32_t pcm_sampling_frequency_{16000};
   OutputSelector output_;
