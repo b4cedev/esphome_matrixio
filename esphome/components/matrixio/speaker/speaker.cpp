@@ -12,6 +12,10 @@ namespace matrixio {
 static const size_t BUFFER_COUNT = 32;
 // Must be above the priority of the ESPHome main loop task (1), otherwise the FIFO runs dry.
 static const UBaseType_t PLAYER_TASK_PRIORITY = 2;
+// Time the player task waits for the first audio after it was started (TTS engines need a moment to produce it).
+static const uint32_t STARTUP_TIMEOUT_MS = 4000;
+// The keep-alive task tops the FIFO up with silence below this fill level (words). 1024 words are 32 ms at 16 kHz.
+static const uint32_t KEEPALIVE_MIN_FILL_WORDS = 1024;
 static const uint32_t POLL_INTERVAL_MS = 10;
 // Safety margin that keeps the FIFO from ever becoming completely full (see get_fpga_fifo_fill_()).
 static const uint32_t FIFO_MARGIN_WORDS = 64;
@@ -24,6 +28,9 @@ void Speaker::setup() {
   this->write_output_();
   this->write_mute_();
   this->write_volume_();
+  // The FPGA DAC output is high-impedance while its FIFO is empty (dac_fsm.v, S_IDLE). Starting to drive it again
+  // after a long pause causes a click, so keep it fed with silence whenever the player task is not running.
+  xTaskCreate(Speaker::keepalive_task, "speaker_keepalive", 4096, (void *) this, 1, nullptr);
 }
 
 void Speaker::dump_config() {
@@ -51,7 +58,9 @@ void Speaker::start() {
 }
 
 void Speaker::start_() {
-  if (!this->set_pcm_sampling_frequency(this->audio_stream_info_.get_sample_rate())) {
+  // Only touch the rate register if the rate changes
+  if (this->audio_stream_info_.get_sample_rate() != this->pcm_sampling_frequency_ &&
+      !this->set_pcm_sampling_frequency(this->audio_stream_info_.get_sample_rate())) {
     ESP_LOGE(TAG, "Unsupported sampling frequency: %u", (unsigned) this->audio_stream_info_.get_sample_rate());
     this->state_ = speaker::STATE_STOPPED;
     return;
@@ -59,8 +68,10 @@ void Speaker::start_() {
   this->stop_requested_ = false;
   this->finish_requested_ = false;
   this->fifo_fill_ = 0;
-  xQueueReset(this->buffer_queue_);
+  // Chunks queued by play() before the main loop got here (state STARTING) must survive. The queue is emptied when
+  // the speaker stops.
   this->state_ = speaker::STATE_RUNNING;
+  this->player_active_ = true;
   xTaskCreate(Speaker::player_task, "speaker_task", 8192, (void *) this, PLAYER_TASK_PRIORITY,
               &this->player_task_handle_);
 }
@@ -123,9 +134,7 @@ void Speaker::loop() {
 void Speaker::player_task(void *params) {
   Speaker *this_speaker = (Speaker *) params;
 
-  this_speaker->flush_fpga_fifo_();
-  delay(POLL_INTERVAL_MS);
-
+  // No FIFO flush here: the FIFO holds silence from keepalive_task(), which keeps the DAC output driven.
   TaskEvent event;
   event.type = TaskEventType::STARTED;
   xQueueSend(this_speaker->event_queue_, &event, portMAX_DELAY);
@@ -133,6 +142,7 @@ void Speaker::player_task(void *params) {
   const uint32_t rate = this_speaker->pcm_sampling_frequency_;
   DataEvent data_event;
   uint32_t idle_ms = 0;
+  bool received_audio = false;
   bool draining = false;
 
   while (!this_speaker->stop_requested_) {
@@ -163,12 +173,13 @@ void Speaker::player_task(void *params) {
         draining = true;
       } else {
         idle_ms += POLL_INTERVAL_MS;
-        if (idle_ms >= this_speaker->idle_timeout_ms_)
+        if (idle_ms >= (received_audio ? this_speaker->idle_timeout_ms_.load() : STARTUP_TIMEOUT_MS))
           break;  // No audio for idle_timeout_ms_: end of the response
       }
       continue;
     }
     idle_ms = 0;
+    received_audio = true;
 
     this_speaker->wb_write(data_event.data, data_event.len);
 
@@ -183,11 +194,23 @@ void Speaker::player_task(void *params) {
     this_speaker->flush_fpga_fifo_();
   }
 
+  this_speaker->player_active_ = false;  // hand the FIFO back to keepalive_task()
   event.type = TaskEventType::STOPPED;
   xQueueSend(this_speaker->event_queue_, &event, portMAX_DELAY);
 
   // The main loop deletes this task
   while (true) {
+    delay(POLL_INTERVAL_MS);
+  }
+}
+
+void Speaker::keepalive_task(void *params) {
+  Speaker *this_speaker = (Speaker *) params;
+  uint8_t silence[BUFFER_SIZE] = {};
+  while (true) {
+    if (!this_speaker->player_active_ && this_speaker->get_fpga_fifo_fill_() < KEEPALIVE_MIN_FILL_WORDS) {
+      this_speaker->wb_write(silence, sizeof(silence));
+    }
     delay(POLL_INTERVAL_MS);
   }
 }

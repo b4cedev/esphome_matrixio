@@ -65,6 +65,8 @@ class Speaker : public speaker::Speaker, public matrixio::WishboneDevice, public
   void watch_();
 
   static void player_task(void *params);
+  /// Keeps the FPGA FIFO (and so the DAC output) alive with silence while the player task is not running.
+  static void keepalive_task(void *params);
 
   /// Number of 16 bit words currently queued in the FPGA FIFO. The player task never fills the FIFO completely, so
   /// equal read and write pointers always mean "empty".
@@ -81,6 +83,7 @@ class Speaker : public speaker::Speaker, public matrixio::WishboneDevice, public
   std::atomic<bool> stop_requested_{false};
   std::atomic<bool> finish_requested_{false};
   std::atomic<bool> paused_{false};
+  std::atomic<bool> player_active_{false};
   std::atomic<uint16_t> fifo_fill_{0};
   // written from the main loop (e.g. by Home Assistant), read by the player task
   std::atomic<uint32_t> idle_timeout_ms_{500};
