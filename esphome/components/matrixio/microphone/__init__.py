@@ -19,8 +19,9 @@ CONFIG_SCHEMA = microphone.MICROPHONE_SCHEMA.extend(
         cv.GenerateID(): cv.declare_id(mics),
         # Debug aid: read all 8 channels and show each microphone's level on the ring
         cv.Optional(CONF_LEVEL_LIGHT): cv.use_id(light.LightState),
-        cv.Optional(CONF_LED_OFFSET, default=0): cv.int_range(min=0, max=17),
-        cv.Optional(CONF_LED_REVERSE, default=False): cv.boolean,
+        # Everloop LED 0 sits on the left (USB port up) and the LEDs count clockwise
+        cv.Optional(CONF_LED_OFFSET, default=9): cv.int_range(min=0, max=17),
+        cv.Optional(CONF_LED_REVERSE, default=True): cv.boolean,
     }
 ).extend(wb_device_schema())
 

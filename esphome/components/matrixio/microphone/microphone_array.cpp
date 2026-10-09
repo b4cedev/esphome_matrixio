@@ -12,8 +12,8 @@ static const char *const TAG = "matrixio_microphone";
 
 static QueueHandle_t irq_queue;
 
-// Microphone positions in metres (x, y), channel 0..7, from the ODAS matrix_voice.cfg. The array is a ring
-// whose centre is not at the origin, so angles are taken relative to the centroid.
+// Microphone positions in metres (x, y), channel 0..7, from the ODAS matrix_voice.cfg. Channel 0 is in the
+// centre, channels 1..7 are on a ring around the origin.
 static const float MIC_POSITIONS[8][2] = {
     {+0.000000f, +0.000000f},  {-0.038133f, +0.003576f}, {-0.020980f, +0.032043f}, {+0.011971f, +0.036381f},
     {+0.035908f, +0.013323f},  {+0.032805f, -0.019767f}, {+0.004999f, -0.037972f}, {-0.026571f, -0.027584f}};
@@ -59,7 +59,7 @@ void Microphone::dump_config(){
   esph_log_config(TAG, "Matrixio Microphones:");
   if (this->level_light_ != nullptr) {
     esph_log_config(TAG, "  Debug: per-channel levels on the Everloop (offset %u, %s)", this->led_offset_,
-                    this->led_reverse_ ? "reversed" : "counter-clockwise");
+                    this->led_reverse_ ? "clockwise" : "counter-clockwise");
   }
 }
 
@@ -183,40 +183,108 @@ void Microphone::read_all_channels_() {
     this->levels_db_[ch] = db > this->levels_db_[ch] ? db : this->levels_db_[ch] * 0.85f + db * 0.15f;
   }
 
+  // 500 Hz test tone: 16 periods fit exactly into the 512 samples, accumulate the phase of every channel
+  // relative to the centre microphone (channel 0)
+  static float cos_table[32], sin_table[32];
+  static bool tables_ready = false;
+  if (!tables_ready) {
+    for (int i = 0; i < 32; i++) {
+      cos_table[i] = std::cos(2.0f * static_cast<float>(M_PI) * i / 32.0f);
+      sin_table[i] = std::sin(2.0f * static_cast<float>(M_PI) * i / 32.0f);
+    }
+    tables_ready = true;
+  }
+  std::complex<float> bin[MICROPHONE_CHANNELS];
+  for (int ch = 0; ch < MICROPHONE_CHANNELS; ch++) {
+    const int16_t *channel = samples + ch * NUMBER_OF_SAMPLES;
+    float re = 0.0f, im = 0.0f;
+    for (int i = 0; i < NUMBER_OF_SAMPLES; i++) {
+      re += channel[i] * cos_table[i & 31];
+      im -= channel[i] * sin_table[i & 31];
+    }
+    bin[ch] = {re, im};
+  }
+  for (int ch = 0; ch < MICROPHONE_CHANNELS; ch++) this->cross_[ch] += bin[ch] * std::conj(bin[0]);
+
   this->show_levels_();
 
   if (++this->frame_count_ % 16 == 0) {
+    this->log_direction_();
     ESP_LOGW(TAG, "MICDBG dB ch0..7: %.0f %.0f %.0f %.0f %.0f %.0f %.0f %.0f, SPI read %u us", this->levels_db_[0],
              this->levels_db_[1], this->levels_db_[2], this->levels_db_[3], this->levels_db_[4], this->levels_db_[5],
              this->levels_db_[6], this->levels_db_[7], (unsigned) this->read_us_);
   }
 }
 
+// Plane wave from direction theta (towards the source, ccw from +x): the phase of microphone i relative to the
+// centre microphone is k * (r_i . u), k = 2 pi f / c. Scan theta and pick the best fit.
+void Microphone::log_direction_() {
+  const float k = 2.0f * static_cast<float>(M_PI) * 500.0f / 343.0f;
+  const float strength = std::abs(this->cross_[0]) / 16.0f;  // |X_0|^2 averaged
+  float phase[MICROPHONE_CHANNELS];
+  for (int ch = 1; ch < MICROPHONE_CHANNELS; ch++) phase[ch] = std::arg(this->cross_[ch]);
+
+  float best_error = 1e9f;
+  int best_deg = 0;
+  for (int deg = 0; deg < 360; deg += 2) {
+    const float ux = std::cos(deg * static_cast<float>(M_PI) / 180.0f);
+    const float uy = std::sin(deg * static_cast<float>(M_PI) / 180.0f);
+    float error = 0.0f;
+    for (int ch = 1; ch < MICROPHONE_CHANNELS; ch++) {
+      float diff = phase[ch] - k * (MIC_POSITIONS[ch][0] * ux + MIC_POSITIONS[ch][1] * uy);
+      diff = std::atan2(std::sin(diff), std::cos(diff));
+      error += diff * diff;
+    }
+    if (error < best_error) {
+      best_error = error;
+      best_deg = deg;
+    }
+  }
+  ESP_LOGW(TAG, "MICDBG phase deg ch1..7: %.0f %.0f %.0f %.0f %.0f %.0f %.0f | strength %.0f dB | DOA %d deg, rms err %.0f deg",
+           phase[1] * 57.2958f, phase[2] * 57.2958f, phase[3] * 57.2958f, phase[4] * 57.2958f, phase[5] * 57.2958f,
+           phase[6] * 57.2958f, phase[7] * 57.2958f, 20.0f * std::log10(strength + 1.0f), best_deg,
+           std::sqrt(best_error / 7.0f) * 57.2958f);
+  for (auto &c : this->cross_) c = {0.0f, 0.0f};
+}
+
 void Microphone::show_levels_() {
   static uint8_t frame[NUMBER_OF_LEDS * 4];
   memset(frame, 0, sizeof(frame));
 
-  float cx = 0.0f, cy = 0.0f;
-  for (const auto &pos : MIC_POSITIONS) {
-    cx += pos[0] / MICROPHONE_CHANNELS;
-    cy += pos[1] / MICROPHONE_CHANNELS;
+  // The ring microphones (channels 1..7) are centred on the origin, channel 0 sits in the middle
+  const float cx = 0.0f, cy = 0.0f;
+
+  // The microphones differ by a fixed 2-3 dB, which is as large as the direction effect. Remove the
+  // slowly tracked per-channel offset, and stay dark while it is quiet.
+  float mean = 0.0f;
+  for (float level : this->levels_db_) mean += level / MICROPHONE_CHANNELS;
+  float deviation[MICROPHONE_CHANNELS];
+  for (int ch = 0; ch < MICROPHONE_CHANNELS; ch++) {
+    const float offset = this->levels_db_[ch] - mean;
+    this->bias_db_[ch] += (offset - this->bias_db_[ch]) * 0.002f;
+    deviation[ch] = mean > 45.0f ? offset - this->bias_db_[ch] : 0.0f;
   }
 
-  for (int ch = 0; ch < MICROPHONE_CHANNELS; ch++) {
+  // Channel 0 is the centre microphone and has no direction; channels 1..7 form the ring
+  for (int ch = 1; ch < MICROPHONE_CHANNELS; ch++) {
     const float angle = std::atan2(MIC_POSITIONS[ch][1] - cy, MIC_POSITIONS[ch][0] - cx);  // radians, ccw from +x
     int led = static_cast<int>(std::lround(angle / (2.0f * static_cast<float>(M_PI)) * NUMBER_OF_LEDS));
     if (this->led_reverse_) led = -led;
     led = ((led + this->led_offset_) % NUMBER_OF_LEDS + NUMBER_OF_LEDS) % NUMBER_OF_LEDS;
 
-    // 30 dB (noise floor) .. 90 dB maps to 0 .. 100 %
-    const float level = std::min(1.0f, std::max(0.0f, (this->levels_db_[ch] - 30.0f) / 60.0f));
+    // Level relative to the other microphones: 0 .. 4 dB above the average maps to 0 .. 100 %
+    const float level = std::min(1.0f, std::max(0.0f, deviation[ch] / 4.0f));
     const uint8_t value = static_cast<uint8_t>(level * 120.0f);
     uint8_t *px = frame + led * 4;  // R, G, B, W
-    if (ch == 0) {
-      px[0] = value;  // channel 0 in red to find the start
-    } else {
-      px[1] = value;
-    }
+    px[1] = value;
+  }
+
+  // Calibration aid for led_offset / led_reverse: mark the first LEDs for 25 s after boot
+  if (millis() < 25000) {
+    frame[0 * 4 + 0] = 120;  // LED 0 red
+    frame[1 * 4 + 1] = 120;  // LED 1 green
+    frame[2 * 4 + 2] = 120;  // LED 2 blue
+    frame[9 * 4 + 3] = 60;   // LED 9 white
   }
   this->level_light_->write_raw(frame);
 }

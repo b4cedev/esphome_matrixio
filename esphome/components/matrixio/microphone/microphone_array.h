@@ -9,6 +9,7 @@
 #include "../wishbone.h"
 #include "../light/everloop.h"
 
+#include <complex>
 #include <vector>
 
 namespace esphome {
@@ -44,6 +45,7 @@ private:
   void read_();
   void read_all_channels_();
   void show_levels_();
+  void log_direction_();
   void write_fir_coeffs();
   void write_sampling_rate_and_gain();
 
@@ -57,6 +59,8 @@ private:
   bool led_reverse_{false};
   std::vector<uint8_t> raw_;
   float levels_db_[MICROPHONE_CHANNELS]{};
+  float bias_db_[MICROPHONE_CHANNELS]{};  // slow average of each channel's offset to the mean
+  std::complex<float> cross_[MICROPHONE_CHANNELS];  // sum of X_ch * conj(X_0) at 500 Hz over 16 frames
   uint32_t read_us_{0};
   uint32_t frame_count_{0};
 };

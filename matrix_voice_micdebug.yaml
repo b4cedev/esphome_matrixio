@@ -50,5 +50,5 @@ microphone:
   - platform: matrixio
     id: matrixio_mic
     level_light: everloop
-    led_offset: 0
-    led_reverse: false
+    led_offset: 9
+    led_reverse: true
