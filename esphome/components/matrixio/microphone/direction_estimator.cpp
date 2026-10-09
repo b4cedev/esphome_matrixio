@@ -136,6 +136,7 @@ DirectionResult DirectionEstimator::process(const int16_t *samples) {
 
   DirectionResult result;
   result.level_db = 10.0f * std::log10(band_energy / BINS / CHANNELS + 1.0f);
+  result.over_floor_db = 10.0f * std::log10(band_energy / (band_floor_ + 1e-6f));
 
   if (loud_enough && weight_sum >= 10.0f) {
     for (int a = 0; a < ANGLES; a++) {

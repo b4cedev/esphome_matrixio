@@ -11,6 +11,7 @@ struct DirectionResult {
   float angle_deg{0.0f};   // towards the source, counter-clockwise from +x of the microphone coordinates
   float confidence{0.0f};  // 0..1, about 0.1..0.2 for noise, towards 1 for a single coherent source
   float level_db{0.0f};    // band level, for logging
+  float over_floor_db{0.0f};  // band level above the tracked background level
 };
 
 /**

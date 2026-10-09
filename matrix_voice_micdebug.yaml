@@ -1,7 +1,4 @@
-# Debug config: shows the level of each of the 8 microphones on the Everloop (no voice assistant).
-# Channel 0 is red, channels 1..7 green. Tune `led_offset` / `led_reverse` until the LED next to the
-# microphone you tap lights up.
-# which would block going back to the unencrypted 2023 firmware.
+# Debug config: direction of arrival as a beam on the Everloop, without the voice assistant.
 external_components:
   #- source:
   #    type: git
@@ -60,7 +57,7 @@ number:
     optimistic: true
     restore_value: true
     on_value:
-      - lambda: id(matrixio_mic).set_direction_confidence(x);
+      - lambda: id(matrixio_mic).set_beam_confidence(x);
   - platform: template
     name: "Direction level over background"
     id: direction_level_db
@@ -74,11 +71,19 @@ number:
     optimistic: true
     restore_value: true
     on_value:
-      - lambda: id(matrixio_mic).set_direction_level_db(x);
+      - lambda: id(matrixio_mic).set_beam_level_db(x);
 
 microphone:
   - platform: matrixio
     id: matrixio_mic
-    level_light: everloop
-    led_offset: 9
-    led_reverse: true
+    direction:
+      always_on: true
+      beam_light: everloop
+      angle:
+        name: "Sound direction"
+      confidence:
+        name: "Sound direction confidence"
+      level:
+        name: "Sound level over background"
+      active:
+        name: "Sound detected"

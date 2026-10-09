@@ -16,6 +16,9 @@ external_components:
 
 esphome:
   name: matrixio-voice
+  on_boot:
+    # The direction beam on the ring is shown from on_listening until on_end
+    - lambda: id(matrixio_mic).set_beam_enabled(false);
 
 esp32:
   board: esp32dev
@@ -52,6 +55,21 @@ light:
 microphone:
   - platform: matrixio
     id: matrixio_mic
+    # Direction of arrival of sound (uses all 8 microphones, the voice assistant still gets mono).
+    # The sensors work all the time, with the more lenient detect_* thresholds, e.g. for presence.
+    direction:
+      always_on: true
+      beam_light: everloop
+      angle:
+        name: "Sound direction"
+      confidence:
+        name: "Sound direction confidence"
+        entity_category: diagnostic
+      level:
+        name: "Sound level over background"
+        entity_category: diagnostic
+      active:
+        name: "Sound detected"
 
 speaker:
   - platform: matrixio
@@ -80,12 +98,42 @@ number:
       # fires on boot (restored value) and on every change from HA
       - lambda: id(matrixio_speaker_hp).set_idle_timeout((uint32_t) x);
 
+  # Sensitivity of the direction beam on the ring (the sensors use detect_confidence/detect_level_db)
+  - platform: template
+    name: "Direction beam confidence"
+    id: direction_beam_confidence
+    entity_category: config
+    mode: box
+    min_value: 0.2
+    max_value: 0.95
+    step: 0.01
+    initial_value: 0.62
+    optimistic: true
+    restore_value: true
+    on_value:
+      - lambda: id(matrixio_mic).set_beam_confidence(x);
+  - platform: template
+    name: "Direction beam level over background"
+    id: direction_beam_level
+    entity_category: config
+    unit_of_measurement: dB
+    mode: box
+    min_value: 0
+    max_value: 30
+    step: 1
+    initial_value: 9
+    optimistic: true
+    restore_value: true
+    on_value:
+      - lambda: id(matrixio_mic).set_beam_level_db(x);
+
 voice_assistant:
   id: va
   microphone: matrixio_mic
   speaker: matrixio_speaker_hp
 
   on_listening:
+    - lambda: id(matrixio_mic).set_beam_enabled(true);
     - light.turn_on:
         id: everloop
         blue: 100%
@@ -94,6 +142,8 @@ voice_assistant:
         white: 0%
         brightness: 60%
   on_stt_vad_end:
+    # the beam stays on the direction of the speaker, but no longer follows the answer from the speaker
+    - lambda: id(matrixio_mic).set_beam_tracking(false);
     - light.turn_on:
         id: everloop
         blue: 50%
@@ -110,12 +160,14 @@ voice_assistant:
         white: 0%
         brightness: 60%
   on_end:
+    - lambda: id(matrixio_mic).set_beam_enabled(false);
     - delay: 100ms
     - wait_until:
         not:
           speaker.is_playing:
     - script.execute: reset_led
   on_error:
+    - lambda: id(matrixio_mic).set_beam_enabled(false);
     - light.turn_on:
         id: everloop
         red: 100%
