@@ -15,6 +15,10 @@ esp32:
   framework:
     type: esp-idf
     version: recommended
+    sdkconfig_options:
+      # Larger UDP receive mailbox (default 6 datagrams). Home Assistant streams TTS
+      # audio ahead of playback; without this long answers can stutter.
+      CONFIG_LWIP_UDP_RECVMBOX_SIZE: "64"
 
 wifi:
   ssid: SSID
@@ -52,6 +56,25 @@ speaker:
     audio_out: headphone
     # 0..100, in percent, default: 80
     volume: 90
+
+number:
+  # Playback ends (LED/wake word come back) this long after the last audio.
+  # Too low can cut off a response when the stream stalls (WiFi, slow TTS).
+  - platform: template
+    name: "Speaker idle timeout"
+    id: speaker_idle_timeout
+    entity_category: config
+    unit_of_measurement: ms
+    mode: box
+    min_value: 100
+    max_value: 5000
+    step: 50
+    initial_value: 500
+    optimistic: true
+    restore_value: true
+    on_value:
+      # fires on boot (restored value) and on every change from HA
+      - lambda: id(matrixio_speaker_hp).set_idle_timeout((uint32_t) x);
 
 voice_assistant:
   id: va

@@ -32,6 +32,7 @@ void Speaker::dump_config(){
 
   }
   esph_log_config(TAG, "  Volume: %d%%", volume);
+  esph_log_config(TAG, "  Idle timeout: %ums", (unsigned) this->idle_timeout_ms_);
 }
 
 void Speaker::start() { this->state_ = speaker::STATE_STARTING; }
@@ -119,8 +120,9 @@ void Speaker::player_task(void *params) {
   const int sleep = int(MAX_WRITE_LENGTH * sample_time * 1000);
 
   while (true) {
-    if (xQueueReceive(this_speaker->buffer_queue_, &data_event, 4000 / portTICK_PERIOD_MS) != pdTRUE) {
-      break;  // End of audio from main thread
+    if (xQueueReceive(this_speaker->buffer_queue_, &data_event, pdMS_TO_TICKS(this_speaker->idle_timeout_ms_)) !=
+        pdTRUE) {
+      break;  // No audio for idle_timeout_ms_: end of the response
     }
     if (data_event.stop) {
       // Stop signal from main thread
@@ -251,6 +253,10 @@ uint32_t Speaker::read_pcm_sampling_frequency(){
   }
   ESP_LOGE(TAG, "Reading sampling frequency faild. Got : %u", pcm_constant);
   return 0;
+}
+
+void Speaker::set_idle_timeout(uint32_t timeout_ms){
+  this->idle_timeout_ms_ = std::min<uint32_t>(std::max<uint32_t>(timeout_ms, 100), 10000);
 }
 
 void Speaker::set_volume(uint8_t volume_percentage){

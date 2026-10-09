@@ -52,6 +52,9 @@ public:
   void unmute();
   void set_volume(uint8_t volume_percentage);
   void set_output(OutputSelector output_selector);
+  /// Playback stops after this many milliseconds without new audio (100..10000).
+  void set_idle_timeout(uint32_t timeout_ms);
+  uint32_t get_idle_timeout() const { return this->idle_timeout_ms_; }
   uint8_t get_volume();
 
   void set_pcm_sampling_frequency(uint32_t sampling_frequency);
@@ -79,6 +82,8 @@ private:
   OutputSelector output_;
   MuteStatus mute_status_;
   uint8_t volume_;
+  // written from the main loop (e.g. HA), read by the player task
+  volatile uint32_t idle_timeout_ms_{500};
 };
 
 }
