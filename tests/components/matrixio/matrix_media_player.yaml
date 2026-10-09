@@ -50,7 +50,7 @@ speaker:
     volume: 90
     sample_rate: 16000
   - platform: mixer
-    id: mixer_speaker
+    id: speaker_mixer
     output_speaker: matrixio_speaker_hp
     num_channels: 1
     source_speakers:
