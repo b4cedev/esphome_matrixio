@@ -34,6 +34,13 @@ public:
         this->wb_write(this->buf_, this->buffer_size_);
     }
 
+    // Write an RGBW frame (4 bytes per LED) directly, bypassing the light state
+    void write_raw(uint8_t *rgbw) {
+        if (this->is_failed())
+            return;
+        this->wb_write(rgbw, this->buffer_size_);
+    }
+
     void clear_effect_data() override {
         for (int i = 0; i < this->size(); i++)
             this->effect_data_[i] = 0;

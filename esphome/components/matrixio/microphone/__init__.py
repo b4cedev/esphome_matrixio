@@ -1,7 +1,7 @@
 import esphome.config_validation as cv
 import esphome.codegen as cg
 from esphome.const import CONF_ID
-from esphome.components import audio, microphone
+from esphome.components import audio, light, microphone
 
 from .. import matrixio_ns, wb_device, wb_device_schema, register_wb_device  # noqa
 
@@ -10,9 +10,17 @@ CODEOWNERS = ["@gnumpi"]
 
 mics = matrixio_ns.class_("Microphone", microphone.Microphone, wb_device, cg.Component)
 
+CONF_LEVEL_LIGHT = "level_light"
+CONF_LED_OFFSET = "led_offset"
+CONF_LED_REVERSE = "led_reverse"
+
 CONFIG_SCHEMA = microphone.MICROPHONE_SCHEMA.extend(
     {
         cv.GenerateID(): cv.declare_id(mics),
+        # Debug aid: read all 8 channels and show each microphone's level on the ring
+        cv.Optional(CONF_LEVEL_LIGHT): cv.use_id(light.LightState),
+        cv.Optional(CONF_LED_OFFSET, default=0): cv.int_range(min=0, max=17),
+        cv.Optional(CONF_LED_REVERSE, default=False): cv.boolean,
     }
 ).extend(wb_device_schema())
 
@@ -38,3 +46,8 @@ async def to_code(config):
     await cg.register_component(var, config)
     await register_wb_device(var, config)
     await microphone.register_microphone(var, config)
+
+    if CONF_LEVEL_LIGHT in config:
+        ring = await cg.get_variable(config[CONF_LEVEL_LIGHT])
+        cg.add(var.set_level_light(ring))
+        cg.add(var.set_led_mapping(config[CONF_LED_OFFSET], config[CONF_LED_REVERSE]))

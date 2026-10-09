@@ -5,10 +5,21 @@
 #include <hal/gpio_types.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <esp_timer.h>
+#include <cmath>
 
 static const char *const TAG = "matrixio_microphone";
 
 static QueueHandle_t irq_queue;
+
+// Microphone positions in metres (x, y), channel 0..7, from the ODAS matrix_voice.cfg. The array is a ring
+// whose centre is not at the origin, so angles are taken relative to the centroid.
+static const float MIC_POSITIONS[8][2] = {
+    {+0.000000f, +0.000000f},  {-0.038133f, +0.003576f}, {-0.020980f, +0.032043f}, {+0.011971f, +0.036381f},
+    {+0.035908f, +0.013323f},  {+0.032805f, -0.019767f}, {+0.004999f, -0.037972f}, {-0.026571f, -0.027584f}};
+
+// Transfers over the Wishbone bus are limited to ~4 KB, read the channel buffer in pieces.
+static const size_t READ_CHUNK_BYTES = 2048;
 
 static void irq_handler(void *args) {
   gpio_num_t gpio;
@@ -36,10 +47,20 @@ void Microphone::setup() {
 
   gpio_config(&gpioConfig);
   gpio_install_isr_service(0);
+
+  if (this->level_light_ != nullptr) {
+    this->raw_.resize(MICROPHONE_BUFFER_SIZE * sizeof(int16_t));
+    for (float &level : this->levels_db_) level = 0.0f;
+    this->start();  // no consumer will ask for data in this debug mode
+  }
 }
 
 void Microphone::dump_config(){
   esph_log_config(TAG, "Matrixio Microphones:");
+  if (this->level_light_ != nullptr) {
+    esph_log_config(TAG, "  Debug: per-channel levels on the Everloop (offset %u, %s)", this->led_offset_,
+                    this->led_reverse_ ? "reversed" : "counter-clockwise");
+  }
 }
 
 void Microphone::write_config(){
@@ -123,10 +144,81 @@ void Microphone::read_() {
   }
   // The FPGA raises the IRQ every NUMBER_OF_SAMPLES (512) samples per channel (31.25 Hz at 16 kHz) and
   // stores the channels one after another, so the first 512 * 2 bytes are the complete mono stream.
+  if (this->level_light_ != nullptr) {
+    this->read_all_channels_();
+    return;
+  }
   const size_t bytes_to_read = NUMBER_OF_SAMPLES * sizeof(int16_t);
   std::vector<uint8_t> data(bytes_to_read);
   this->wb_read(data.data(), data.size());
   this->data_callbacks_.call(data);
+}
+
+void Microphone::read_all_channels_() {
+  const int64_t t0 = esp_timer_get_time();
+  const size_t total = MICROPHONE_BUFFER_SIZE * sizeof(int16_t);
+  for (size_t offset = 0; offset < total; offset += READ_CHUNK_BYTES) {
+    this->wb_read_at(offset / sizeof(uint16_t), this->raw_.data() + offset, READ_CHUNK_BYTES);
+  }
+  this->read_us_ = static_cast<uint32_t>(esp_timer_get_time() - t0);
+
+  // Channel 0 stays the mono stream for consumers
+  if (this->data_callbacks_.size() > 0) {
+    std::vector<uint8_t> mono(this->raw_.begin(), this->raw_.begin() + NUMBER_OF_SAMPLES * sizeof(int16_t));
+    this->data_callbacks_.call(mono);
+  }
+
+  const int16_t *samples = reinterpret_cast<const int16_t *>(this->raw_.data());
+  for (int ch = 0; ch < MICROPHONE_CHANNELS; ch++) {
+    const int16_t *channel = samples + ch * NUMBER_OF_SAMPLES;
+    double sum = 0.0, sum_sq = 0.0;
+    for (int i = 0; i < NUMBER_OF_SAMPLES; i++) {
+      sum += channel[i];
+      sum_sq += static_cast<double>(channel[i]) * channel[i];
+    }
+    const double mean = sum / NUMBER_OF_SAMPLES;
+    const double rms = std::sqrt(std::max(0.0, sum_sq / NUMBER_OF_SAMPLES - mean * mean));  // DC removed
+    const float db = 20.0f * std::log10(static_cast<float>(rms) + 1.0f);
+    // fast attack, slow release so short sounds stay visible
+    this->levels_db_[ch] = db > this->levels_db_[ch] ? db : this->levels_db_[ch] * 0.85f + db * 0.15f;
+  }
+
+  this->show_levels_();
+
+  if (++this->frame_count_ % 16 == 0) {
+    ESP_LOGW(TAG, "MICDBG dB ch0..7: %.0f %.0f %.0f %.0f %.0f %.0f %.0f %.0f, SPI read %u us", this->levels_db_[0],
+             this->levels_db_[1], this->levels_db_[2], this->levels_db_[3], this->levels_db_[4], this->levels_db_[5],
+             this->levels_db_[6], this->levels_db_[7], (unsigned) this->read_us_);
+  }
+}
+
+void Microphone::show_levels_() {
+  static uint8_t frame[NUMBER_OF_LEDS * 4];
+  memset(frame, 0, sizeof(frame));
+
+  float cx = 0.0f, cy = 0.0f;
+  for (const auto &pos : MIC_POSITIONS) {
+    cx += pos[0] / MICROPHONE_CHANNELS;
+    cy += pos[1] / MICROPHONE_CHANNELS;
+  }
+
+  for (int ch = 0; ch < MICROPHONE_CHANNELS; ch++) {
+    const float angle = std::atan2(MIC_POSITIONS[ch][1] - cy, MIC_POSITIONS[ch][0] - cx);  // radians, ccw from +x
+    int led = static_cast<int>(std::lround(angle / (2.0f * static_cast<float>(M_PI)) * NUMBER_OF_LEDS));
+    if (this->led_reverse_) led = -led;
+    led = ((led + this->led_offset_) % NUMBER_OF_LEDS + NUMBER_OF_LEDS) % NUMBER_OF_LEDS;
+
+    // 30 dB (noise floor) .. 90 dB maps to 0 .. 100 %
+    const float level = std::min(1.0f, std::max(0.0f, (this->levels_db_[ch] - 30.0f) / 60.0f));
+    const uint8_t value = static_cast<uint8_t>(level * 120.0f);
+    uint8_t *px = frame + led * 4;  // R, G, B, W
+    if (ch == 0) {
+      px[0] = value;  // channel 0 in red to find the start
+    } else {
+      px[1] = value;
+    }
+  }
+  this->level_light_->write_raw(frame);
 }
 
 void Microphone::start_() {
@@ -147,7 +239,7 @@ void Microphone::loop() {
       this->start_();
       break;
     case microphone::STATE_RUNNING:
-      if (this->data_callbacks_.size() > 0) {
+      if (this->data_callbacks_.size() > 0 || this->level_light_ != nullptr) {
         this->read_();
       }
       break;

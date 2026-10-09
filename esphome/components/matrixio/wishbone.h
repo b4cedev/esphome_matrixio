@@ -60,6 +60,8 @@ public:
 protected:
   void wb_write(uint8_t* data, int length){this->wb_->write( this->wb_base_address_, data, length );}
   void wb_read(uint8_t* data, int length){this->wb_->read( this->wb_base_address_, data, length );}
+  // offset in 16 bit words from the device base address
+  void wb_read_at(uint16_t offset, uint8_t* data, int length){this->wb_->read( this->wb_base_address_ + offset, data, length );}
   void reg_write(uint16_t offset, uint16_t data){this->wb_->reg_write(this->wb_base_address_ + offset, data);}
   void reg_read(uint16_t offset, uint16_t* data){this->wb_->reg_read(this->wb_base_address_ + offset, data);}
   void conf_write(uint16_t offset, uint16_t data){this->wb_->reg_write(CONF_BASE_ADDRESS + offset, data);}

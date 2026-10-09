@@ -1,0 +1,54 @@
+# Debug config: shows the level of each of the 8 microphones on the Everloop (no voice assistant).
+# Channel 0 is red, channels 1..7 green. Tune `led_offset` / `led_reverse` until the LED next to the
+# microphone you tap lights up.
+# which would block going back to the unencrypted 2023 firmware.
+external_components:
+  #- source:
+  #    type: git
+  #    url: https://github.com/gnumpi/esphome_matrixio
+  #    ref: main
+  - source:
+      type: local
+      path: esphome/components/
+
+esphome:
+  name: matrixio-voice
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    version: recommended
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+
+logger:
+
+ota:
+  - platform: esphome
+
+api:
+
+spi:
+  clk_pin:  GPIO32
+  mosi_pin: GPIO33
+  miso_pin: GPIO21
+
+matrixio:
+  id: matrixio_dev
+  cs_pin: GPIO23
+
+light:
+  - platform: matrixio
+    id: everloop
+    name: everloop
+
+microphone:
+  - platform: matrixio
+    id: matrixio_mic
+    level_light: everloop
+    led_offset: 0
+    led_reverse: false
