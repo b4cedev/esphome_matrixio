@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "esphome-ci"
-version = "2023.12.0"
+version = "2026.9.0"
 description = "Linting and Testing external-components for ESPHome"
 dependencies = [
     "colorama",
@@ -14,5 +14,5 @@ dependencies = [
 packages = ["esphome_ci"]
 
 [tool.black]
-target-version = ["py39", "py310"]
+target-version = ["py312", "py313"]
 exclude = 'generated'

@@ -24,6 +24,7 @@ packages:
 logger:
 
 ota:
+  - platform: esphome
 
 api:
 

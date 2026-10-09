@@ -1,0 +1,73 @@
+external_components:
+  #- source:
+  #    type: git
+  #    url: https://github.com/gnumpi/esphome_matrixio
+  #    ref: main
+  - source:
+      type: local
+      path: ../../../esphome/components/
+
+esphome:
+  name: matrixio-voice
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    version: recommended
+
+
+logger:
+
+spi:
+  clk_pin:  GPIO32
+  mosi_pin: GPIO33
+  miso_pin: GPIO21
+
+matrixio:
+  id: matrixio_dev
+  cs_pin: GPIO23
+
+light:
+  - platform: matrixio
+    name: everloop
+    id: everloop
+
+microphone:
+  - platform: matrixio
+    id: matrixio_mic
+
+wifi:
+  ssid: SSID
+  password: PASSWORD
+
+speaker:
+  - platform: matrixio
+    id: matrixio_speaker_hp
+    # [headphone,speakers], default: headphone
+    audio_out: headphone
+    # 0..100, in percent, default: 80
+    volume: 90
+    sample_rate: 16000
+  - platform: mixer
+    id: mixer_speaker
+    output_speaker: matrixio_speaker_hp
+    num_channels: 1
+    source_speakers:
+      - id: announcement_mixer_input
+      - id: media_mixer_input
+
+media_player:
+  - platform: speaker
+    name: MatrixIO Media Player
+    id: matrixio_media_player
+    announcement_pipeline:
+      speaker: announcement_mixer_input
+      format: FLAC
+      sample_rate: 16000
+      num_channels: 1
+    media_pipeline:
+      speaker: media_mixer_input
+      format: FLAC
+      sample_rate: 16000
+      num_channels: 1

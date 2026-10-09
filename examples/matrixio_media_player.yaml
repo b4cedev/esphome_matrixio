@@ -6,11 +6,6 @@ external_components:
       type: git
       url: https://github.com/gnumpi/esphome_matrixio
       ref: main
-  - source:
-      type: git
-      url: https://github.com/gnumpi/esphome_audio
-      ref: main
-    components: [ adf_pipeline ]
 
 esphome:
   name: ${node_name}
@@ -28,6 +23,7 @@ packages:
 logger:
 
 ota:
+  - platform: esphome
 
 api:
 
@@ -42,18 +38,34 @@ matrixio:
   cs_pin: GPIO23
 
 
-adf_pipeline:
+speaker:
   - platform: matrixio
-    id: adf_matrix_out
-    type: sink
+    id: matrixio_speaker_hp
+    # [headphone,speakers], default: headphone
     audio_out: headphone
+    # 0..100, in percent, default: 80
     volume: 80
+    # fixed output rate, required as output of the mixer
+    sample_rate: 16000
+  - platform: mixer
+    id: mixer_speaker
+    output_speaker: matrixio_speaker_hp
+    num_channels: 1
+    source_speakers:
+      - id: announcement_mixer_input
+      - id: media_mixer_input
 
 media_player:
-  - platform: adf_pipeline
-    id: adf_media_player
-    name: matrixio_media_player
-    internal: false
-    pipeline:
-      - self
-      - adf_matrix_out
+  - platform: speaker
+    name: MatrixIO Media Player
+    id: matrixio_media_player
+    announcement_pipeline:
+      speaker: announcement_mixer_input
+      format: FLAC
+      sample_rate: 16000
+      num_channels: 1
+    media_pipeline:
+      speaker: media_mixer_input
+      format: FLAC
+      sample_rate: 16000
+      num_channels: 1

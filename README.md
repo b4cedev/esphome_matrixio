@@ -1,5 +1,5 @@
 # ESPHome MatrixIO
-**Target: ESPHome-2023.12.9**
+**Target: ESPHome-2026.9.1**
 
 [![ESPHome-target](https://github.com/gnumpi/esphome_matrixio/actions/workflows/tox-target.yml/badge.svg)](https://github.com/gnumpi/esphome_matrixio/actions/workflows/tox-target.yml)
 [![ESPHome-latest](https://github.com/gnumpi/esphome_matrixio/actions/workflows/tox-latest.yml/badge.svg)](https://github.com/gnumpi/esphome_matrixio/actions/workflows/tox-latest.yml)
@@ -10,8 +10,10 @@ This custom component gives access to the LED-Strip (everloop), microphones and 
 
 It allows to use a Matrixio-Voice as a satellite for [Home Assistant](https://www.home-assistant.io/) [voice control](https://www.home-assistant.io/voice_control/).
 
-Now it is also possible to use the Matrixio-Voice as a media player for Home Assistant.
-Configuration files can be found in the 'examples' folder.
+It can also be used as a media player for Home Assistant, built on ESPHome's native `speaker` media player
+(see `examples/matrixio_media_player.yaml`). Further configuration files can be found in the 'examples' folder.
+
+Older ESPHome versions (including 2023.x) and the `adf_pipeline` platform (`gnumpi/esphome_audio`) are no longer supported.
 
 Right now, only one microphone of the array is used. I might add a beamforming in the future.
 
@@ -78,3 +80,9 @@ speaker:
 
 
 ```
+
+`ota` needs a platform in current ESPHome (`ota: - platform: esphome`).
+
+The `speaker` accepts 16 bit PCM at 8000, 16000, 32000, 44100 and 48000 Hz (mono is duplicated to stereo).
+The optional `sample_rate` fixes the rate; it is required if the speaker is the output of a `mixer` speaker,
+which is how the media player and voice announcements share the speaker.

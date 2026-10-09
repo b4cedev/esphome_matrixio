@@ -22,6 +22,7 @@ namespace matrixio {
 void Microphone::setup() {
   this->set_sampling_rate(16000);
   this->write_config();
+  this->audio_stream_info_ = audio::AudioStreamInfo(16, 1, this->sampling_rate_);
 
   // IRQ handling
   irq_queue = xQueueCreate(10, sizeof(gpio_num_t));
@@ -115,9 +116,13 @@ void Microphone::write_sampling_rate_and_gain(){
 }
 
 void Microphone::read_() {
-  const size_t samples_to_read = 512;
-  std::vector<uint8_t> data(samples_to_read * sizeof(int16_t));
-  // Read PCM data from FPGA via wishbone interface
+  // Wait for the FPGA to signal that new PCM data is available, never block the main loop
+  gpio_num_t gpio;
+  if (xQueueReceive(irq_queue, &gpio, 0) != pdTRUE) {
+    return;
+  }
+  const size_t bytes_to_read = 256;
+  std::vector<uint8_t> data(bytes_to_read);
   this->wb_read(data.data(), data.size());
   this->data_callbacks_.call(data);
 }
