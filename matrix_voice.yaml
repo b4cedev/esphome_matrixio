@@ -21,8 +21,8 @@ esp32:
       CONFIG_LWIP_UDP_RECVMBOX_SIZE: "64"
 
 wifi:
-  ssid: SSID
-  password: PASSWORD
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
   fast_connect: true
 
 logger:
