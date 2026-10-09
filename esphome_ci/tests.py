@@ -1,7 +1,6 @@
 import os
-
-from esphome.core import EsphomeError
-from esphome.__main__ import run_esphome
+import subprocess
+import sys
 
 from .components import ExternalComponent
 
@@ -11,14 +10,21 @@ class CompileTest:
         self.comp = component
 
     def run_tests(self) -> int:
-        ret = 0
-        for cfgFile in os.listdir(self.comp.testsRoot):
+        failed = []
+        for cfgFile in sorted(os.listdir(self.comp.testsRoot)):
             if not cfgFile.endswith(".yaml"):
                 continue
-            print("Testing config: ", cfgFile)
-            cfgFile = os.path.join(self.comp.testsRoot, cfgFile)
-            try:
-                ret += run_esphome(["esphome", "-q", "compile", cfgFile])
-            except EsphomeError:
-                ret = 1
-        return ret
+            print("Testing config: ", cfgFile, flush=True)
+            cfgPath = os.path.join(self.comp.testsRoot, cfgFile)
+            # Compile every config in its own process: ESPHome keeps state between runs in one
+            # process (e.g. the registered entity names), so every config after the first one
+            # failed with "Duplicate ... entity".
+            result = subprocess.run(
+                [sys.executable, "-m", "esphome", "-q", "compile", cfgPath]
+            )
+            if result.returncode != 0:
+                failed.append(cfgFile)
+        if failed:
+            print("Failed configs: ", ", ".join(failed), flush=True)
+            return 1
+        return 0
