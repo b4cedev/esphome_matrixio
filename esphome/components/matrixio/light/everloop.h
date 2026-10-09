@@ -2,6 +2,7 @@
 
 #include "esphome/core/component.h"
 #include "esphome/core/log.h"
+#include <cstring>
 #include "esphome/components/light/addressable_light.h"
 
 #include "esphome/components/matrixio/wishbone.h"
@@ -28,10 +29,15 @@ public:
         return traits;
     }
 
-    void write_state(light::LightState *state) override {
-        if (this->is_failed())
+    void write_state(light::LightState *state) override { this->write_composed_(); }
+
+    // Overlay (RGBW, 4 bytes per LED) added on top of the light state, e.g. a direction beam.
+    // Pass all zeros to remove it. Call from the main loop only, like write_state().
+    void set_overlay(const uint8_t *rgbw) {
+        if (this->is_failed() || this->overlay_ == nullptr)
             return;
-        this->wb_write(this->buf_, this->buffer_size_);
+        memcpy(this->overlay_, rgbw, this->buffer_size_);
+        this->write_composed_();
     }
 
     // Write an RGBW frame (4 bytes per LED) directly, bypassing the light state
@@ -53,6 +59,10 @@ private:
     size_t buffer_size_{};
     uint8_t *effect_data_{nullptr};
     uint8_t *buf_{nullptr};
+    uint8_t *overlay_{nullptr};
+    uint8_t *out_{nullptr};
+
+    void write_composed_();
     int32_t num_leds_;
 };
 
