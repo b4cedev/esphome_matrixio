@@ -121,7 +121,9 @@ void Microphone::read_() {
   if (xQueueReceive(irq_queue, &gpio, 0) != pdTRUE) {
     return;
   }
-  const size_t bytes_to_read = 256;
+  // The FPGA raises the IRQ every NUMBER_OF_SAMPLES (512) samples per channel (31.25 Hz at 16 kHz) and
+  // stores the channels one after another, so the first 512 * 2 bytes are the complete mono stream.
+  const size_t bytes_to_read = NUMBER_OF_SAMPLES * sizeof(int16_t);
   std::vector<uint8_t> data(bytes_to_read);
   this->wb_read(data.data(), data.size());
   this->data_callbacks_.call(data);
