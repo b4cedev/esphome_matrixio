@@ -80,6 +80,22 @@ speaker:
     volume: 90
 
 number:
+  # Level of the microphone stream for the voice assistant, on top of gain_factor (saturates instead of wrapping)
+  - platform: template
+    name: "Microphone gain"
+    id: microphone_gain
+    entity_category: config
+    unit_of_measurement: dB
+    mode: slider
+    min_value: -6
+    max_value: 18
+    step: 1
+    initial_value: 0
+    optimistic: true
+    restore_value: true
+    on_value:
+      - lambda: id(matrixio_mic).set_gain_db(x);
+
   # Playback ends (LED/wake word come back) this long after the last audio.
   # Too low can cut off a response when the stream stalls (WiFi, slow TTS).
   - platform: template
