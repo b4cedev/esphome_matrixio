@@ -8,6 +8,9 @@
 substitutions:
   # Everloop ring size
   led_count: '18'
+  # LED at the top (USB port side), the thinking animation pulses it and the opposite one. LED 0 is on the left and the
+  # LEDs count clockwise; the top lies between LED 4 and 5.
+  led_top: '4'
   # Phases of the voice assistant, as in the Home Assistant Voice PE
   voice_assist_idle_phase_id: '1'
   voice_assist_waiting_for_command_phase_id: '2'
@@ -154,7 +157,7 @@ light:
             const int n = ${led_count};
             const int h = n / 2;
             for (int i = 0; i < n; i++) {
-              if (i == id(global_led_animation_index) % n || i == (id(global_led_animation_index) + h) % n) {
+              if (i == ${led_top} || i == (${led_top} + h) % n) {
                 it[i] = color * uint8_t(255 / brightness_step_number * (brightness_step_number - brightness_step));
               } else {
                 it[i] = Color::BLACK;
@@ -521,7 +524,7 @@ script:
           id: voice_assistant_leds
           effect: "Listening For Command"
 
-  # Thinking: the spin stops, the two opposite LEDs where it stopped pulse
+  # Thinking: the spin stops, the LEDs at the top and the bottom pulse
   - id: control_leds_thinking_phase
     then:
       - light.turn_on:
