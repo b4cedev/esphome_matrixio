@@ -368,6 +368,10 @@ voice_assistant:
     # -9 dBFS.
     gain_factor: 4
   speaker: matrixio_speaker_hp
+  # Home Assistant filters and levels the audio before speech to text (as recommended for weak microphones such as
+  # the ATOM Echo), so that the voice activity detection tells speech from pauses more reliably.
+  noise_suppression_level: 2
+  auto_gain: 31dBFS
 
   # The ring follows the phases of the Home Assistant Voice PE
   on_listening:
