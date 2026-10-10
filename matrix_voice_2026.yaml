@@ -402,9 +402,11 @@ voice_assistant:
   on_listening:
     # the beam has the colour of the LED ring (as bright as the animations), so that it turns into the thinking pulse
     - lambda: |-
+        // the animations are gamma corrected by the light, the beam is added to the output, so do the same here
         auto ring = id(led_ring).current_values;
-        const float level = std::max(ring.get_brightness(), 0.2f) * 255.0f;
-        id(matrixio_mic).set_beam_color(ring.get_red() * level, ring.get_green() * level, ring.get_blue() * level);
+        const float level = std::max(ring.get_brightness(), 0.2f);
+        auto out = [&](float channel) { return 255.0f * id(leds_internal).gamma_correct_lut(channel * level); };
+        id(matrixio_mic).set_beam_color(out(ring.get_red()), out(ring.get_green()), out(ring.get_blue()));
         id(thinking_led) = -1;
     - lambda: id(matrixio_mic).set_beam_enabled(true);
     - lambda: |-
