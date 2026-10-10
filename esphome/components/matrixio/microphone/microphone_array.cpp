@@ -189,10 +189,10 @@ void Microphone::read_() {
   }
   // The FPGA raises the IRQ every NUMBER_OF_SAMPLES (512) samples per channel (31.25 Hz at 16 kHz) and
   // stores the channels one after another, so the first 512 * 2 bytes are the complete mono stream.
-  const size_t bytes_to_read = NUMBER_OF_SAMPLES * sizeof(int16_t);
-  std::vector<uint8_t> data(bytes_to_read);
-  this->wb_read(data.data(), data.size());
-  this->data_callbacks_.call(data);
+  // The buffer is allocated once: with the media player the heap gets tight and a failing allocation here aborts.
+  this->mono_.resize(NUMBER_OF_SAMPLES * sizeof(int16_t));
+  this->wb_read(this->mono_.data(), this->mono_.size());
+  this->data_callbacks_.call(this->mono_);
 }
 
 void Microphone::read_all_channels_() {
@@ -205,8 +205,8 @@ void Microphone::read_all_channels_() {
 
   // Channel 0 (the centre microphone) stays the mono stream for consumers
   if (this->data_callbacks_.size() > 0) {
-    std::vector<uint8_t> mono(this->raw_.begin(), this->raw_.begin() + NUMBER_OF_SAMPLES * sizeof(int16_t));
-    this->data_callbacks_.call(mono);
+    this->mono_.assign(this->raw_.begin(), this->raw_.begin() + NUMBER_OF_SAMPLES * sizeof(int16_t));
+    this->data_callbacks_.call(this->mono_);
   }
 
   this->hand_over_frame_();

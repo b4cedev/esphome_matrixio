@@ -98,6 +98,7 @@ private:
   bool direction_enabled_{false};
   bool always_on_{false};
   DirectionEstimator direction_;
+  std::vector<uint8_t> mono_;     // channel 0 for the consumers, reused every frame
   std::vector<uint8_t> raw_;      // frame as read from the FPGA (main loop)
   std::vector<uint8_t> dsp_buf_;  // frame being processed by the DSP task
   TaskHandle_t dsp_task_{nullptr};
