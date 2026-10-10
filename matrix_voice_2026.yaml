@@ -568,6 +568,17 @@ script:
           effect: "Twinkle"
 
 switch:
+  # Send the delay-and-sum of all microphones, steered at the sound direction, to the voice assistant
+  - platform: template
+    name: 'Beamforming'
+    id: use_beamforming
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+    on_turn_on:
+      - lambda: id(matrixio_mic).set_beamforming(true);
+    on_turn_off:
+      - lambda: id(matrixio_mic).set_beamforming(false);
   - platform: template
     name: 'Use wake word'
     id: use_wake_word

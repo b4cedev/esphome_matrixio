@@ -58,6 +58,10 @@ public:
   void set_beam_enabled(bool enabled);
   void set_beam_tracking(bool tracking) { this->beam_tracking_ = tracking; }
   void set_hold_time_ms(uint32_t ms) { this->active_hold_ms_ = ms; }
+  // Beamforming: the stream for consumers is the delay-and-sum of all 8 microphones, steered at the detected
+  // direction (plain sum while there is none) instead of the centre microphone alone. May be switched at runtime.
+  void set_beamforming(bool enabled) { this->beamforming_ = enabled; }
+  bool get_beamforming() const { return this->beamforming_; }
   // Time constant of the direction smoothing (one frame is 32 ms), 0 = none
   void set_smoothing_ms(uint32_t ms) { this->smoothing_decay_ = ms == 0 ? 0.0f : std::exp(-32.0f / ms); }
   void set_led_mapping(float offset, bool reverse) {
@@ -81,6 +85,7 @@ private:
   void attach_irq_();
   void detach_irq_();
   void hand_over_frame_();
+  void beamform_();
   void handle_result_(const DirectionResult &result);
   void show_beam_(const DirectionResult &result, bool detected);
   void publish_direction_(const DirectionResult &result, bool detected);
@@ -123,6 +128,14 @@ private:
   bool active_{false};
   uint32_t last_publish_ms_{0};
   float last_published_angle_{-1000.0f};
+
+  // Beamforming (main loop only)
+  static const int BF_HISTORY = 8;  // samples kept from the previous frame per microphone
+  bool beamforming_{false};
+  bool steering_{false};            // a direction is known: steer at steer_angle_ (microphone coordinates)
+  float steer_angle_{0.0f};
+  float delay_[8]{};                // delay of every microphone in samples, as used for the last frame
+  int16_t history_[8][BF_HISTORY]{};
 
   // Beam
   Everloop *beam_light_{nullptr};

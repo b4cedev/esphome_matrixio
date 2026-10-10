@@ -27,6 +27,7 @@ CONF_SMOOTHING = "smoothing"
 CONF_BEAM_LIGHT = "beam_light"
 CONF_BEAM_CONFIDENCE = "beam_confidence"
 CONF_BEAM_LEVEL_DB = "beam_level_db"
+CONF_BEAMFORMING = "beamforming"
 CONF_LED_OFFSET = "led_offset"
 CONF_LED_REVERSE = "led_reverse"
 CONF_ANGLE = "angle"
@@ -49,6 +50,9 @@ DIRECTION_SCHEMA = cv.Schema(
         cv.Optional(CONF_HOLD_TIME, default="3s"): cv.positive_time_period_milliseconds,
         # Smoothing of the direction (time constant), longer = calmer but slower to follow a moving source
         cv.Optional(CONF_SMOOTHING, default="300ms"): cv.positive_time_period_milliseconds,
+        # Send the delay-and-sum of all 8 microphones, steered at the detected direction, instead of the centre
+        # microphone alone (better signal to noise ratio). Can be switched at runtime with set_beamforming().
+        cv.Optional(CONF_BEAMFORMING, default=False): cv.boolean,
         # Show the direction as a beam on this Everloop light (on top of its current colours)
         cv.Optional(CONF_BEAM_LIGHT): cv.use_id(light.LightState),
         # The beam is stricter than the detection, adjustable at runtime (set_beam_*)
@@ -120,6 +124,7 @@ async def to_code(config):
         cg.add(var.set_min_frames(direction[CONF_MIN_FRAMES]))
         cg.add(var.set_hold_time_ms(direction[CONF_HOLD_TIME]))
         cg.add(var.set_smoothing_ms(direction[CONF_SMOOTHING]))
+        cg.add(var.set_beamforming(direction[CONF_BEAMFORMING]))
         cg.add(var.set_beam_confidence(direction[CONF_BEAM_CONFIDENCE]))
         cg.add(var.set_beam_level_db(direction[CONF_BEAM_LEVEL_DB]))
         cg.add(var.set_led_mapping(direction[CONF_LED_OFFSET], direction[CONF_LED_REVERSE]))
