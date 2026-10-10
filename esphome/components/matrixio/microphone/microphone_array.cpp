@@ -205,11 +205,62 @@ void Microphone::read_all_channels_() {
 
   // Channel 0 (the centre microphone) stays the mono stream for consumers
   if (this->data_callbacks_.size() > 0) {
-    this->mono_.assign(this->raw_.begin(), this->raw_.begin() + NUMBER_OF_SAMPLES * sizeof(int16_t));
+    this->mono_.resize(NUMBER_OF_SAMPLES * sizeof(int16_t));
+    if (this->beamforming_) {
+      this->beamform_();
+    } else {
+      memcpy(this->mono_.data(), this->raw_.data(), this->mono_.size());
+    }
     this->data_callbacks_.call(this->mono_);
   }
 
   this->hand_over_frame_();
+}
+
+// Delay-and-sum beamformer. A source in direction u reaches microphone c earlier by tau_c = r_c . u / c, so
+// every microphone is delayed by tau_c to line the signals up, then the eight are averaged: the wanted speech adds
+// up coherently, the uncorrelated noise of the microphones does not (up to +9 dB signal to noise ratio).
+// Without a known direction all delays are 0 (plain sum). The delays move linearly from the previous to the new
+// value within a frame, so a changing direction causes no click. The output lags by BF_CENTER samples so that
+// negative and positive delays can both be read.
+void Microphone::beamform_() {
+  static const int BF_CENTER = 4;
+  static const float SAMPLES_PER_METRE = 16000.0f / 343.0f;
+  const int n = NUMBER_OF_SAMPLES;
+  const int16_t *raw = reinterpret_cast<const int16_t *>(this->raw_.data());
+  int16_t *out = reinterpret_cast<int16_t *>(this->mono_.data());
+
+  float target[8] = {};
+  if (this->steering_) {
+    const float rad = this->steer_angle_ * static_cast<float>(M_PI) / 180.0f;
+    const float ux = std::cos(rad), uy = std::sin(rad);
+    for (int c = 0; c < 8; c++) {
+      target[c] = (MIC_POSITIONS[c][0] * ux + MIC_POSITIONS[c][1] * uy) * SAMPLES_PER_METRE;
+    }
+  }
+
+  int32_t acc[NUMBER_OF_SAMPLES] = {};
+  for (int c = 0; c < 8; c++) {
+    const int16_t *frame = raw + c * n;
+    const int16_t *hist = this->history_[c];
+    const float step = (target[c] - this->delay_[c]) / n;
+    float d = this->delay_[c];
+    for (int i = 0; i < n; i++) {
+      // position in this frame (negative = previous frame) of the sample that is delayed by d
+      const float pos = i - BF_CENTER - d;
+      const int base = static_cast<int>(std::floor(pos));
+      const float frac = pos - base;
+      auto at = [&](int idx) -> float {
+        if (idx >= n) idx = n - 1;
+        return idx >= 0 ? frame[idx] : hist[std::max(0, BF_HISTORY + idx)];
+      };
+      acc[i] += static_cast<int32_t>(at(base) * (1.0f - frac) + at(base + 1) * frac);
+      d += step;
+    }
+    this->delay_[c] = target[c];
+    memcpy(this->history_[c], frame + n - BF_HISTORY, sizeof(this->history_[c]));
+  }
+  for (int i = 0; i < n; i++) out[i] = static_cast<int16_t>(acc[i] / 8);
 }
 
 // The estimate takes up to ~9 ms, which is too long for the main loop, so it runs in its own task.
@@ -260,6 +311,10 @@ void Microphone::handle_result_(const DirectionResult &raw) {
     float smoothed = std::atan2(this->vec_y_, this->vec_x_) * 180.0f / static_cast<float>(M_PI);
     result.angle_deg = smoothed < 0.0f ? smoothed + 360.0f : smoothed;
   }
+
+  // Steer the beamformer at the smoothed direction while a sound is detected (and during the hold time)
+  this->steering_ = detected || static_cast<int32_t>(this->active_until_ms_ - now) > 0;
+  this->steer_angle_ = result.angle_deg;
 
   this->publish_direction_(result, detected);
   this->show_beam_(result, detected);

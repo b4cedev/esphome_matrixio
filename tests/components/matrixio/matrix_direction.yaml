@@ -38,6 +38,7 @@ microphone:
     id: matrixio_mic
     direction:
       always_on: true
+      beamforming: true
       beam_light: everloop
       angle:
         name: "Sound direction"
