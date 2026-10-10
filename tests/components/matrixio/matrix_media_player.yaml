@@ -48,26 +48,19 @@ speaker:
     audio_out: headphone
     # 0..100, in percent, default: 80
     volume: 90
+    # fixed output rate of the media player
     sample_rate: 16000
-  - platform: mixer
-    id: speaker_mixer
-    output_speaker: matrixio_speaker_hp
-    num_channels: 1
-    source_speakers:
-      - id: announcement_mixer_input
-      - id: media_mixer_input
 
+# The Voice has no PSRAM, so the media player has to be small (see "Media player" in the README).
 media_player:
   - platform: speaker
     name: MatrixIO Media Player
     id: matrixio_media_player
+    # The default of 1 MB is meant for boards with PSRAM and fails with ESP_ERR_NO_MEM here
+    buffer_size: 8000
+    # One pipeline straight to the speaker, no mixer. WAV needs no decoder memory (FLAC needs ~50 KB more).
     announcement_pipeline:
-      speaker: announcement_mixer_input
-      format: FLAC
-      sample_rate: 16000
-      num_channels: 1
-    media_pipeline:
-      speaker: media_mixer_input
-      format: FLAC
+      speaker: matrixio_speaker_hp
+      format: WAV
       sample_rate: 16000
       num_channels: 1

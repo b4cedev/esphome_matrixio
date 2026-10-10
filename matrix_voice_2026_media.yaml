@@ -1,0 +1,255 @@
+# Voice assistant plus media player (Home Assistant announcements and media playback), WITHOUT the direction
+# of arrival: the Voice has no PSRAM and the heap (~160 KB) does not hold the voice assistant, a media
+# pipeline and the direction estimate at the same time (see README).
+#
+# One pipeline straight to the speaker, no mixer, so an announcement (also the voice assistant's answer)
+# interrupts the media instead of ducking it. WAV needs no decoder memory, FLAC would need ~50 KB more.
+#
+# Keep the node name and do NOT add `api: encryption:` for the first test:
+# Home Assistant matches the device by MAC address and stores an encryption key,
+# which would block going back to the unencrypted 2023 firmware.
+external_components:
+  #- source:
+  #    type: git
+  #    url: https://github.com/gnumpi/esphome_matrixio
+  #    ref: main
+  - source:
+      type: local
+      path: esphome/components/
+
+esphome:
+  name: matrixio-voice
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    version: recommended
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+
+logger:
+
+ota:
+  - platform: esphome
+
+api:
+
+spi:
+  clk_pin:  GPIO32
+  mosi_pin: GPIO33
+  miso_pin: GPIO21
+
+matrixio:
+  id: matrixio_dev
+  cs_pin: GPIO23
+
+light:
+  - platform: matrixio
+    name: everloop
+    id: everloop
+
+microphone:
+  - platform: matrixio
+    id: matrixio_mic
+    # Direction of arrival of sound (uses all 8 microphones, the voice assistant still gets mono).
+    # The sensors work all the time, with the more lenient detect_* thresholds, e.g. for presence.
+
+speaker:
+  - platform: matrixio
+    id: matrixio_speaker_hp
+    # [headphone,speakers], default: headphone
+    audio_out: headphone
+    # 0..100, in percent, default: 80
+    volume: 90
+    # fixed output rate of the media player
+    sample_rate: 16000
+
+globals:
+  # true from the start of an answer (or an announcement) until the voice assistant turn has ended
+  - id: va_responding
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+media_player:
+  - platform: speaker
+    name: MatrixIO Media Player
+    id: matrixio_media_player
+    # The default of 1 MB is meant for boards with PSRAM; the Voice has none (ESP_ERR_NO_MEM).
+    buffer_size: 8000
+    # One pipeline straight to the speaker, no mixer: two pipelines plus the mixer do not fit into the ~160 KB
+    # of heap of the Voice. An announcement (e.g. a voice assistant answer) interrupts the media.
+    # The microphone needs ~32 KB of ring buffers, the player pipeline most of the rest: while media is playing
+    # (not an answer of the voice assistant) the voice assistant is stopped, which frees its buffers.
+    # The pipeline plays everything as "announcing" because there is only one.
+    on_announcement:
+      - if:
+          condition:
+            lambda: 'return !id(va_responding);'
+          then:
+            - voice_assistant.stop:
+    on_idle:
+      # start listening again once nothing is playing (the voice assistant does that itself after an answer)
+      - delay: 1s
+      - if:
+          condition:
+            and:
+              - switch.is_on: use_wake_word
+              - media_player.is_idle: matrixio_media_player
+          then:
+            - voice_assistant.start_continuous:
+    announcement_pipeline:
+      speaker: matrixio_speaker_hp
+      # WAV needs no decoder memory (FLAC needs ~50 KB more), HA converts to it
+      format: WAV
+      sample_rate: 16000
+      num_channels: 1
+
+number:
+  # Playback ends (LED/wake word come back) this long after the last audio.
+  # Too low can cut off a response when the stream stalls (WiFi, slow TTS).
+  - platform: template
+    name: "Speaker idle timeout"
+    id: speaker_idle_timeout
+    entity_category: config
+    unit_of_measurement: ms
+    mode: box
+    min_value: 100
+    max_value: 5000
+    step: 50
+    initial_value: 500
+    optimistic: true
+    restore_value: true
+    on_value:
+      # fires on boot (restored value) and on every change from HA
+      - lambda: id(matrixio_speaker_hp).set_idle_timeout((uint32_t) x);
+
+
+voice_assistant:
+  id: va
+  microphone: matrixio_mic
+  # the answers are played through the media player (announcement pipeline), which also ducks the media
+  media_player: matrixio_media_player
+
+  on_listening:
+    - light.turn_on:
+        id: everloop
+        blue: 100%
+        red: 0%
+        green: 0%
+        white: 0%
+        brightness: 60%
+  on_stt_vad_end:
+    - light.turn_on:
+        id: everloop
+        blue: 50%
+        red: 0%
+        green: 100%
+        white: 0%
+        brightness: 60%
+  on_tts_start:
+    - lambda: id(va_responding) = true;
+    - light.turn_on:
+        id: everloop
+        blue: 100%
+        red: 100%
+        green: 0%
+        white: 0%
+        brightness: 60%
+  on_end:
+    - delay: 100ms
+    - wait_until:
+        not:
+          media_player.is_announcing: matrixio_media_player
+    - lambda: id(va_responding) = false;
+    - script.execute: reset_led
+  on_error:
+    - lambda: id(va_responding) = false;
+    - light.turn_on:
+        id: everloop
+        red: 100%
+        green: 0%
+        blue: 0%
+        white: 0%
+        brightness: 60%
+    - delay: 1s
+    - script.execute: reset_led
+  on_client_connected:
+    - if:
+        condition:
+          and:
+            - switch.is_on: use_wake_word
+            - media_player.is_idle: matrixio_media_player
+        then:
+          - voice_assistant.start_continuous:
+          - script.execute: reset_led
+  on_client_disconnected:
+    - if:
+        condition:
+          switch.is_on: use_wake_word
+        then:
+          - voice_assistant.stop:
+          - light.turn_off: everloop
+
+script:
+  - id: reset_led
+    then:
+      - if:
+          condition:
+            - switch.is_on: use_wake_word
+            - switch.is_on: use_listen_light
+          then:
+            - light.turn_on:
+                id: everloop
+                red: 100%
+                green: 89%
+                blue: 71%
+                white: 0%
+                brightness: 60%
+          else:
+            - light.turn_off: everloop
+
+switch:
+  - platform: template
+    name: 'Use wake word'
+    id: use_wake_word
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+    on_turn_on:
+      - lambda: id(va).set_use_wake_word(true);
+      - if:
+          condition:
+            not:
+              - voice_assistant.is_running
+          then:
+            - voice_assistant.start_continuous
+      - script.execute: reset_led
+    on_turn_off:
+      - voice_assistant.stop
+      - lambda: id(va).set_use_wake_word(false);
+      - script.execute: reset_led
+  - platform: template
+    name: 'Use Listen Light'
+    id: use_listen_light
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+    on_turn_on:
+      - script.execute: reset_led
+    on_turn_off:
+      - script.execute: reset_led
+
+  - platform: template
+    name: "Start Listening"
+    turn_on_action:
+      - voice_assistant.start:
+          silence_detection: false
+
+    turn_off_action:
+      - voice_assistant.stop:
+      - script.execute: reset_led

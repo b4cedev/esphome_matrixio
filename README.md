@@ -84,8 +84,37 @@ speaker:
 `ota` needs a platform in current ESPHome (`ota: - platform: esphome`).
 
 The `speaker` accepts 16 bit PCM at 8000, 16000, 32000, 44100 and 48000 Hz (mono is duplicated to stereo).
-The optional `sample_rate` fixes the rate; it is required if the speaker is the output of a `mixer` speaker,
-which is how the media player and voice announcements share the speaker.
+The optional `sample_rate` fixes the rate; it is required if the speaker is the output of a `mixer` speaker or of a
+`speaker` media player.
+
+### Media player
+
+The `speaker` media player plays media and announcements from Home Assistant (this is also how announcements such as
+`assist_satellite.announce` reach the Voice: the voice assistant only handles them with a media player).
+The MATRIX Voice has **no PSRAM**, about 160 KB of heap are free after boot, so the media player has to be small:
+
+```yaml
+media_player:
+  - platform: speaker
+    name: MatrixIO Media Player
+    id: matrixio_media_player
+    buffer_size: 8000        # the default of 1 MB is meant for PSRAM and fails with ESP_ERR_NO_MEM
+    announcement_pipeline:   # one pipeline straight to the speaker, no mixer
+      speaker: matrixio_speaker
+      format: WAV            # FLAC needs ~50 KB more heap for its decoder
+      sample_rate: 16000
+      num_channels: 1
+```
+
+What this means in practice (tested on the device):
+
+* With one pipeline, an announcement (including the voice assistant's answer) interrupts the media instead of ducking
+  it. Two pipelines plus a mixer, or the FLAC decoder, run out of memory.
+* The voice assistant's microphone buffers and the player pipeline do not fit at the same time. While media plays the
+  voice assistant should be stopped and started again afterwards, see `matrix_voice_2026_media.yaml` (no wake word
+  while music plays).
+* The media player and the direction of arrival do not fit together; `matrix_voice_2026.yaml` has the direction of
+  arrival, `matrix_voice_2026_media.yaml` the media player and announcements.
 
 ### Direction of arrival
 
