@@ -160,9 +160,6 @@ voice_assistant:
     gain_factor: 4
   # the answers are played through the media player (announcement pipeline), which also ducks the media
   media_player: matrixio_media_player
-  # Home Assistant filters and levels the audio before speech to text (see matrix_voice_2026.yaml)
-  noise_suppression_level: 2
-  auto_gain: 31dBFS
 
   on_listening:
     - lambda: id(turn_active) = true;
