@@ -8,8 +8,8 @@
 substitutions:
   # Everloop ring size
   led_count: '18'
-  # LED at the top (USB port side), the thinking animation pulses it and the opposite one. LED 0 is on the left and the
-  # LEDs count clockwise; the top lies between LED 4 and 5.
+  # LED at the top (USB port side), the thinking animation pulses it and the opposite one. The LEDs count clockwise,
+  # LED 4 sits exactly at 12 o'clock and LED 13 at 6 o'clock.
   led_top: '4'
   # Phases of the voice assistant, as in the Home Assistant Voice PE
   voice_assist_idle_phase_id: '1'
