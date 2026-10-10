@@ -60,7 +60,7 @@ public:
   void set_hold_time_ms(uint32_t ms) { this->active_hold_ms_ = ms; }
   // Time constant of the direction smoothing (one frame is 32 ms), 0 = none
   void set_smoothing_ms(uint32_t ms) { this->smoothing_decay_ = ms == 0 ? 0.0f : std::exp(-32.0f / ms); }
-  void set_led_mapping(uint8_t offset, bool reverse) {
+  void set_led_mapping(float offset, bool reverse) {
     this->led_offset_ = offset;
     this->led_reverse_ = reverse;
   }
@@ -133,7 +133,7 @@ private:
   bool has_last_beam_{false};
   float beam_confidence_{0.62f};
   float beam_level_db_{9.0f};
-  uint8_t led_offset_{9};
+  float led_offset_{8.5f};
   bool led_reverse_{true};
   float beam_angle_{0.0f};
   float beam_level_{0.0f};

@@ -84,7 +84,7 @@ void Microphone::dump_config(){
                     this->direction_.valid_threshold, 10.0f * std::log10(this->direction_.min_band_over_floor),
                     this->min_valid_frames_);
     if (this->beam_light_ != nullptr) {
-      esph_log_config(TAG, "    beam: confidence >= %.2f, level >= %.1f dB (LED 0 offset %u, %s)", this->beam_confidence_,
+      esph_log_config(TAG, "    beam: confidence >= %.2f, level >= %.1f dB (LED offset %.1f, %s)", this->beam_confidence_,
                       this->beam_level_db_, this->led_offset_, this->led_reverse_ ? "clockwise" : "counter-clockwise");
     }
   }
