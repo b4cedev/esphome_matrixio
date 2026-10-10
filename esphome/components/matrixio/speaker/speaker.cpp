@@ -1,6 +1,8 @@
 #include "speaker.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 #include <esp_timer.h>
@@ -17,6 +19,8 @@ static const uint32_t STARTUP_TIMEOUT_MS = 4000;
 // The keep-alive task tops the FIFO up with silence below this fill level (words). 1024 words are 32 ms at 16 kHz.
 static const uint32_t KEEPALIVE_MIN_FILL_WORDS = 1024;
 static const uint32_t POLL_INTERVAL_MS = 10;
+// A chunk whose peak is below this (about -44 dBFS) counts as silence in the diagnostics.
+static const int16_t DIAG_ACTIVE_PEAK = 200;
 // Safety margin that keeps the FIFO from ever becoming completely full (see get_fpga_fifo_fill_()).
 static const uint32_t FIFO_MARGIN_WORDS = 64;
 
@@ -76,6 +80,12 @@ void Speaker::start_() {
   this->stop_requested_ = false;
   this->finish_requested_ = false;
   this->fifo_fill_ = 0;
+  this->diag_frames_ = 0;
+  this->diag_active_frames_ = 0;
+  this->diag_peak_ = 0;
+  this->diag_underrun_ms_ = 0;
+  this->diag_partial_ = 0;
+  this->diag_start_ms_ = millis();
   // Chunks queued by play() before the main loop got here (state STARTING) must survive. The queue is emptied when
   // the speaker stops.
   this->state_ = speaker::STATE_RUNNING;
@@ -107,15 +117,30 @@ void Speaker::watch_() {
   TaskEvent event;
   while (xQueueReceive(this->event_queue_, &event, 0) == pdTRUE) {
     switch (event.type) {
-      case TaskEventType::STARTED:
-        ESP_LOGD(TAG, "Started MatrixIO Audio Speaker");
+      case TaskEventType::STARTED: {
+        // Read back what the FPGA is configured to do, a wrong value would explain a silent or odd playback
+        uint16_t volume = 0, rate = 0, mute = 0, output = 0;
+        this->conf_read(8, &volume);
+        this->conf_read(9, &rate);
+        this->conf_read(10, &mute);
+        this->conf_read(11, &output);
+        ESP_LOGD(TAG, "Started MatrixIO Audio Speaker (FPGA: volume %u, rate %u, mute %u, output %u)", (unsigned) volume,
+                 (unsigned) rate, (unsigned) mute, (unsigned) output);
         break;
-      case TaskEventType::STOPPED:
+      }
+      case TaskEventType::STOPPED: {
+        const float rate = static_cast<float>(this->pcm_sampling_frequency_);
+        const int peak = this->diag_peak_;
+        ESP_LOGD(TAG, "Played %.2f s of audio (%.2f s not silent), peak %d (%.1f dBFS), FIFO ran dry for %u ms, %u partial writes, ran %.2f s",
+                 this->diag_frames_ / rate, this->diag_active_frames_ / rate, peak,
+                 peak > 0 ? 20.0f * log10f(peak / 32768.0f) : -99.0f, (unsigned) this->diag_underrun_ms_,
+                 (unsigned) this->diag_partial_, (millis() - this->diag_start_ms_) / 1000.0f);
         this->state_ = speaker::STATE_STOPPED;
         xQueueReset(this->buffer_queue_);
         this->fifo_fill_ = 0;
         ESP_LOGD(TAG, "Stopped MatrixIO Audio Speaker");
         break;
+      }
     }
   }
 }
@@ -151,10 +176,13 @@ void Speaker::player_task(void *params) {
     uint32_t idle_ms = 0;
     bool received_audio = false;
     bool draining = false;
+    uint32_t dry_ms = 0;  // FIFO (nearly) empty although more audio is expected, for the diagnostics
 
     while (!this_speaker->stop_requested_) {
       uint16_t fill = this_speaker->get_fpga_fifo_fill_();
       this_speaker->fifo_fill_ = fill;
+      if (received_audio && !draining && fill < 32 && uxQueueMessagesWaiting(this_speaker->buffer_queue_) == 0)
+        dry_ms += POLL_INTERVAL_MS;
 
       if (draining) {
         // finish() was requested and all data is written: wait until the FPGA has played it
@@ -187,6 +215,10 @@ void Speaker::player_task(void *params) {
       }
       idle_ms = 0;
       received_audio = true;
+      if (dry_ms > 0) {  // more audio came after the FIFO had run dry: that was an underrun, not the end
+        this_speaker->diag_underrun_ms_ += dry_ms;
+        dry_ms = 0;
+      }
 
       this_speaker->wb_write(data_event.data, data_event.len);
 
@@ -238,22 +270,37 @@ size_t Speaker::play(const uint8_t *data, size_t length, TickType_t ticks_to_wai
   DataEvent event;
   while (consumed < length) {
     size_t to_copy = std::min(length - consumed, chunk_in);
+    int chunk_peak = 0;
+    uint32_t chunk_frames;
     if (mono) {
       const int16_t *src = reinterpret_cast<const int16_t *>(data + consumed);
       int16_t *dst = reinterpret_cast<int16_t *>(event.data);
       for (size_t i = 0; i < to_copy / sizeof(int16_t); i++) {
         *dst++ = src[i];
         *dst++ = src[i];
+        chunk_peak = std::max(chunk_peak, std::abs(static_cast<int>(src[i])));
       }
       event.len = to_copy * 2;
+      chunk_frames = to_copy / sizeof(int16_t);
     } else {
       memcpy(event.data, data + consumed, to_copy);
       event.len = to_copy;
+      const int16_t *src = reinterpret_cast<const int16_t *>(event.data);
+      for (size_t i = 0; i < to_copy / sizeof(int16_t); i++)
+        chunk_peak = std::max(chunk_peak, std::abs(static_cast<int>(src[i])));
+      chunk_frames = to_copy / (2 * sizeof(int16_t));
     }
     if (xQueueSend(this->buffer_queue_, &event, ticks_to_wait) != pdTRUE) {
+      this->diag_partial_++;
       break;  // Queue full, the caller retries with the remaining data
     }
     consumed += to_copy;
+    this->diag_frames_ += chunk_frames;
+    if (chunk_peak > DIAG_ACTIVE_PEAK)
+      this->diag_active_frames_ += chunk_frames;
+    uint16_t seen = this->diag_peak_;
+    while (chunk_peak > seen && !this->diag_peak_.compare_exchange_weak(seen, static_cast<uint16_t>(std::min(chunk_peak, 32768 - 1)))) {
+    }
   }
   return consumed;
 }
