@@ -85,6 +85,14 @@ class Speaker : public speaker::Speaker, public matrixio::WishboneDevice, public
   std::atomic<bool> paused_{false};
   std::atomic<bool> player_active_{false};
   std::atomic<uint16_t> fifo_fill_{0};
+
+  // Diagnostics of one playback, logged when the speaker stops (see watch_())
+  std::atomic<uint32_t> diag_frames_{0};         // frames accepted by play()
+  std::atomic<uint32_t> diag_active_frames_{0};  // frames in chunks that are not (nearly) silent
+  std::atomic<uint16_t> diag_peak_{0};           // highest absolute sample
+  std::atomic<uint32_t> diag_underrun_ms_{0};    // time the FIFO ran (nearly) dry while audio was expected
+  std::atomic<uint32_t> diag_partial_{0};        // play() calls that could not queue everything
+  uint32_t diag_start_ms_{0};
   // written from the main loop (e.g. by Home Assistant), read by the player task
   std::atomic<uint32_t> idle_timeout_ms_{500};
 
