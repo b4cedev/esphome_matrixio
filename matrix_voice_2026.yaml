@@ -126,6 +126,29 @@ number:
     restore_value: true
     on_value:
       - lambda: id(matrixio_mic).set_beam_level_db(x);
+globals:
+  # true from the wake word until the end of the voice assistant turn
+  - id: turn_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+# Workaround for a Home Assistant bug: HA creates the TTS stream when the wake word pipeline starts and deletes it
+# after tts `time_memory` (300 s) without use. If the wake word comes later, the stream is gone, HA does not stream
+# the answer and the Voice stays silent. Restarting the idle pipeline more often than that gives it a fresh stream.
+interval:
+  - interval: 4min
+    then:
+      - if:
+          condition:
+            and:
+              - switch.is_on: use_wake_word
+              - lambda: 'return !id(turn_active);'
+              - voice_assistant.connected:
+          then:
+            - voice_assistant.stop:
+            - delay: 1s
+            - voice_assistant.start_continuous:
 
 voice_assistant:
   id: va
@@ -134,6 +157,7 @@ voice_assistant:
 
   on_listening:
     - lambda: id(matrixio_mic).set_beam_enabled(true);
+    - lambda: id(turn_active) = true;
     - light.turn_on:
         id: everloop
         blue: 100%
@@ -165,9 +189,11 @@ voice_assistant:
     - wait_until:
         not:
           speaker.is_playing:
+    - lambda: id(turn_active) = false;
     - script.execute: reset_led
   on_error:
     - lambda: id(matrixio_mic).set_beam_enabled(false);
+    - lambda: id(turn_active) = false;
     - light.turn_on:
         id: everloop
         red: 100%
