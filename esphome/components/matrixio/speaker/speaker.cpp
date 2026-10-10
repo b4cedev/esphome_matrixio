@@ -24,6 +24,14 @@ void Speaker::setup() {
   ESP_LOGCONFIG(TAG, "Setting up MatrixIO Speaker...");
   this->buffer_queue_ = xQueueCreate(BUFFER_COUNT, sizeof(DataEvent));
   this->event_queue_ = xQueueCreate(BUFFER_COUNT, sizeof(TaskEvent));
+  // The player task lives forever and is woken up by start_(). Creating it for every playback failed silently when
+  // the heap was nearly used up (media player pipeline), the queue then never drained.
+  if (xTaskCreate(Speaker::player_task, "speaker_task", 4096, (void *) this, PLAYER_TASK_PRIORITY,
+                  &this->player_task_handle_) != pdPASS) {
+    ESP_LOGE(TAG, "Failed to create the player task");
+    this->mark_failed();
+    return;
+  }
   this->set_pcm_sampling_frequency(16000);
   this->write_output_();
   this->write_mute_();
@@ -72,8 +80,7 @@ void Speaker::start_() {
   // the speaker stops.
   this->state_ = speaker::STATE_RUNNING;
   this->player_active_ = true;
-  xTaskCreate(Speaker::player_task, "speaker_task", 8192, (void *) this, PLAYER_TASK_PRIORITY,
-              &this->player_task_handle_);
+  xTaskNotifyGive(this->player_task_handle_);
 }
 
 void Speaker::stop() {
@@ -105,10 +112,6 @@ void Speaker::watch_() {
         break;
       case TaskEventType::STOPPED:
         this->state_ = speaker::STATE_STOPPED;
-        if (this->player_task_handle_ != nullptr) {
-          vTaskDelete(this->player_task_handle_);
-          this->player_task_handle_ = nullptr;
-        }
         xQueueReset(this->buffer_queue_);
         this->fifo_fill_ = 0;
         ESP_LOGD(TAG, "Stopped MatrixIO Audio Speaker");
@@ -134,73 +137,73 @@ void Speaker::loop() {
 void Speaker::player_task(void *params) {
   Speaker *this_speaker = (Speaker *) params;
 
-  // No FIFO flush here: the FIFO holds silence from keepalive_task(), which keeps the DAC output driven.
-  TaskEvent event;
-  event.type = TaskEventType::STARTED;
-  xQueueSend(this_speaker->event_queue_, &event, portMAX_DELAY);
-
-  const uint32_t rate = this_speaker->pcm_sampling_frequency_;
-  DataEvent data_event;
-  uint32_t idle_ms = 0;
-  bool received_audio = false;
-  bool draining = false;
-
-  while (!this_speaker->stop_requested_) {
-    uint16_t fill = this_speaker->get_fpga_fifo_fill_();
-    this_speaker->fifo_fill_ = fill;
-
-    if (draining) {
-      // finish() was requested and all data is written: wait until the FPGA has played it
-      if (fill == 0)
-        break;
-      delay(POLL_INTERVAL_MS);
-      continue;
-    }
-
-    if (this_speaker->paused_) {
-      delay(POLL_INTERVAL_MS);
-      continue;
-    }
-
-    // Only take the next chunk out of the queue if the whole chunk fits into the FIFO.
-    if (fill + BUFFER_SIZE / sizeof(uint16_t) + FIFO_MARGIN_WORDS > FPGA_FIFO_SIZE) {
-      delay(POLL_INTERVAL_MS);
-      continue;
-    }
-
-    if (xQueueReceive(this_speaker->buffer_queue_, &data_event, POLL_INTERVAL_MS / portTICK_PERIOD_MS) != pdTRUE) {
-      if (this_speaker->finish_requested_) {
-        draining = true;
-      } else {
-        idle_ms += POLL_INTERVAL_MS;
-        if (idle_ms >= (received_audio ? this_speaker->idle_timeout_ms_.load() : STARTUP_TIMEOUT_MS))
-          break;  // No audio for idle_timeout_ms_: end of the response
-      }
-      continue;
-    }
-    idle_ms = 0;
-    received_audio = true;
-
-    this_speaker->wb_write(data_event.data, data_event.len);
-
-    // Tell the audio pipeline how much was played, accounting for the audio still queued in the FPGA.
-    uint32_t frames = data_event.len / (2 * sizeof(int16_t));
-    uint32_t queued_us = (uint64_t) fill * 1000000ULL / (2ULL * rate);
-    this_speaker->audio_output_callback_.call(frames, esp_timer_get_time() + queued_us);
-  }
-
-  if (this_speaker->stop_requested_) {
-    xQueueReset(this_speaker->buffer_queue_);
-    this_speaker->flush_fpga_fifo_();
-  }
-
-  this_speaker->player_active_ = false;  // hand the FIFO back to keepalive_task()
-  event.type = TaskEventType::STOPPED;
-  xQueueSend(this_speaker->event_queue_, &event, portMAX_DELAY);
-
-  // The main loop deletes this task
   while (true) {
-    delay(POLL_INTERVAL_MS);
+    // Wait for start_()
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+    // No FIFO flush here: the FIFO holds silence from keepalive_task(), which keeps the DAC output driven.
+    TaskEvent event;
+    event.type = TaskEventType::STARTED;
+    xQueueSend(this_speaker->event_queue_, &event, portMAX_DELAY);
+
+    const uint32_t rate = this_speaker->pcm_sampling_frequency_;
+    DataEvent data_event;
+    uint32_t idle_ms = 0;
+    bool received_audio = false;
+    bool draining = false;
+
+    while (!this_speaker->stop_requested_) {
+      uint16_t fill = this_speaker->get_fpga_fifo_fill_();
+      this_speaker->fifo_fill_ = fill;
+
+      if (draining) {
+        // finish() was requested and all data is written: wait until the FPGA has played it
+        if (fill == 0)
+          break;
+        delay(POLL_INTERVAL_MS);
+        continue;
+      }
+
+      if (this_speaker->paused_) {
+        delay(POLL_INTERVAL_MS);
+        continue;
+      }
+
+      // Only take the next chunk out of the queue if the whole chunk fits into the FIFO.
+      if (fill + BUFFER_SIZE / sizeof(uint16_t) + FIFO_MARGIN_WORDS > FPGA_FIFO_SIZE) {
+        delay(POLL_INTERVAL_MS);
+        continue;
+      }
+
+      if (xQueueReceive(this_speaker->buffer_queue_, &data_event, POLL_INTERVAL_MS / portTICK_PERIOD_MS) != pdTRUE) {
+        if (this_speaker->finish_requested_) {
+          draining = true;
+        } else {
+          idle_ms += POLL_INTERVAL_MS;
+          if (idle_ms >= (received_audio ? this_speaker->idle_timeout_ms_.load() : STARTUP_TIMEOUT_MS))
+            break;  // No audio for idle_timeout_ms_: end of the response
+        }
+        continue;
+      }
+      idle_ms = 0;
+      received_audio = true;
+
+      this_speaker->wb_write(data_event.data, data_event.len);
+
+      // Tell the audio pipeline how much was played, accounting for the audio still queued in the FPGA.
+      uint32_t frames = data_event.len / (2 * sizeof(int16_t));
+      uint32_t queued_us = (uint64_t) fill * 1000000ULL / (2ULL * rate);
+      this_speaker->audio_output_callback_.call(frames, esp_timer_get_time() + queued_us);
+    }
+
+    if (this_speaker->stop_requested_) {
+      xQueueReset(this_speaker->buffer_queue_);
+      this_speaker->flush_fpga_fifo_();
+    }
+
+    this_speaker->player_active_ = false;  // hand the FIFO back to keepalive_task()
+    event.type = TaskEventType::STOPPED;
+    xQueueSend(this_speaker->event_queue_, &event, portMAX_DELAY);
   }
 }
 
