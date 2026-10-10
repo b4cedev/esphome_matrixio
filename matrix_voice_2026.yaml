@@ -90,7 +90,7 @@ number:
     min_value: -6
     max_value: 18
     step: 1
-    initial_value: 0
+    initial_value: 6
     optimistic: true
     restore_value: true
     on_value:
