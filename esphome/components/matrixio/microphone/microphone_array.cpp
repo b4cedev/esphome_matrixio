@@ -192,6 +192,7 @@ void Microphone::read_() {
   // The buffer is allocated once: with the media player the heap gets tight and a failing allocation here aborts.
   this->mono_.resize(NUMBER_OF_SAMPLES * sizeof(int16_t));
   this->wb_read(this->mono_.data(), this->mono_.size());
+  this->apply_gain_();
   this->data_callbacks_.call(this->mono_);
 }
 
@@ -211,10 +212,21 @@ void Microphone::read_all_channels_() {
     } else {
       memcpy(this->mono_.data(), this->raw_.data(), this->mono_.size());
     }
+    this->apply_gain_();
     this->data_callbacks_.call(this->mono_);
   }
 
   this->hand_over_frame_();
+}
+
+void Microphone::apply_gain_() {
+  if (this->software_gain_ == 1.0f) return;
+  int16_t *samples = reinterpret_cast<int16_t *>(this->mono_.data());
+  const size_t count = this->mono_.size() / sizeof(int16_t);
+  for (size_t i = 0; i < count; i++) {
+    const float v = samples[i] * this->software_gain_;
+    samples[i] = static_cast<int16_t>(std::max(-32768.0f, std::min(32767.0f, v)));
+  }
 }
 
 // Delay-and-sum beamformer. A source in direction u reaches microphone c earlier by tau_c = r_c . u / c, so

@@ -58,6 +58,8 @@ public:
   void set_beam_enabled(bool enabled);
   void set_beam_tracking(bool tracking) { this->beam_tracking_ = tracking; }
   void set_hold_time_ms(uint32_t ms) { this->active_hold_ms_ = ms; }
+  // Extra level of the stream for consumers, in dB, can be changed at runtime
+  void set_gain_db(float db) { this->software_gain_ = std::pow(10.0f, db / 20.0f); }
   // Beamforming: the stream for consumers is the delay-and-sum of all 8 microphones, steered at the detected
   // direction (plain sum while there is none) instead of the centre microphone alone. May be switched at runtime.
   void set_beamforming(bool enabled) { this->beamforming_ = enabled; }
@@ -86,6 +88,7 @@ private:
   void detach_irq_();
   void hand_over_frame_();
   void beamform_();
+  void apply_gain_();
   void handle_result_(const DirectionResult &result);
   void show_beam_(const DirectionResult &result, bool detected);
   void publish_direction_(const DirectionResult &result, bool detected);
@@ -128,6 +131,8 @@ private:
   bool active_{false};
   uint32_t last_publish_ms_{0};
   float last_published_angle_{-1000.0f};
+
+  float software_gain_{1.0f};
 
   // Beamforming (main loop only)
   static const int BF_HISTORY = 8;  // samples kept from the previous frame per microphone
