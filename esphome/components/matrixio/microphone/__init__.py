@@ -54,8 +54,9 @@ DIRECTION_SCHEMA = cv.Schema(
         # The beam is stricter than the detection, adjustable at runtime (set_beam_*)
         cv.Optional(CONF_BEAM_CONFIDENCE, default=0.62): cv.float_range(min=0.2, max=0.95),
         cv.Optional(CONF_BEAM_LEVEL_DB, default=9.0): cv.float_range(min=0.0, max=30.0),
-        # Everloop LED 0 sits on the left (USB port up) and the LEDs count clockwise
-        cv.Optional(CONF_LED_OFFSET, default=9): cv.int_range(min=0, max=17),
+        # The Everloop LEDs count clockwise and LED 4 sits exactly at 12 o'clock (USB port up), so an angle of 90 degrees
+        # is LED 8.5 - 90 / 20 = 4
+        cv.Optional(CONF_LED_OFFSET, default=8.5): cv.float_range(min=0.0, max=18.0),
         cv.Optional(CONF_LED_REVERSE, default=True): cv.boolean,
         # Direction in degrees like a compass: 0 = USB port side, increasing clockwise (90 = right, 180 = opposite)
         cv.Optional(CONF_ANGLE): sensor.sensor_schema(

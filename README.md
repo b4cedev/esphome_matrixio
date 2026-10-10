@@ -152,7 +152,7 @@ microphone:
 | `smoothing` | `300ms` | Time constant of the direction smoothing. |
 | `beam_light` | | Everloop light that shows the beam. |
 | `beam_confidence`, `beam_level_db` | `0.62`, `9` | Stricter thresholds for the beam, changeable at runtime with `set_beam_confidence()` / `set_beam_level_db()`. |
-| `led_offset`, `led_reverse` | `9`, `true` | Everloop LED 0 sits on the left (USB port up) and the LEDs count clockwise. |
+| `led_offset`, `led_reverse` | `8.5`, `true` | The Everloop LEDs count clockwise and LED 4 sits at 12 o'clock with the USB port up, so the beam is drawn at LED `led_offset - angle / 20°` (the sound angle counter-clockwise from the right). |
 
 The beam is switched from automations, for example to show it from the start of a voice assistant turn until its end,
 and to freeze it on the direction of the speaker while the answer is played:
