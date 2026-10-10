@@ -156,9 +156,17 @@ light:
             Color color(light_color.get_red() * 255, light_color.get_green() * 255, light_color.get_blue() * 255);
             const int n = ${led_count};
             const int h = n / 2;
+            // towards the speaker: three LEDs (the one in the direction at full, its neighbours at half) and the
+            // opposite one; without a direction the LEDs at the top and the bottom
+            const int c = id(thinking_led);
+            const uint8_t pulse = uint8_t(255 / brightness_step_number * (brightness_step_number - brightness_step));
             for (int i = 0; i < n; i++) {
-              if (i == ${led_top} || i == (${led_top} + h) % n) {
-                it[i] = color * uint8_t(255 / brightness_step_number * (brightness_step_number - brightness_step));
+              if (c < 0) {
+                it[i] = (i == ${led_top} || i == (${led_top} + h) % n) ? color * pulse : Color::BLACK;
+              } else if (i == c || i == (c + h) % n) {
+                it[i] = color * pulse;
+              } else if (i == (c + 1) % n || i == (c + n - 1) % n) {
+                it[i] = color * uint8_t(pulse / 2);
               } else {
                 it[i] = Color::BLACK;
               }
@@ -337,6 +345,11 @@ number:
       - lambda: id(matrixio_mic).set_beam_level_db(x);
 
 globals:
+  # LED (0..17) in the direction of the speaker for the thinking pulse, -1 if unknown
+  - id: thinking_led
+    type: int
+    restore_value: no
+    initial_value: '-1'
   # true from the wake word until the end of the voice assistant turn
   - id: turn_active
     type: bool
@@ -387,6 +400,12 @@ voice_assistant:
 
   # The ring follows the phases of the Home Assistant Voice PE
   on_listening:
+    # the beam has the colour of the LED ring (as bright as the animations), so that it turns into the thinking pulse
+    - lambda: |-
+        auto ring = id(led_ring).current_values;
+        const float level = std::max(ring.get_brightness(), 0.2f) * 255.0f;
+        id(matrixio_mic).set_beam_color(ring.get_red() * level, ring.get_green() * level, ring.get_blue() * level);
+        id(thinking_led) = -1;
     - lambda: id(matrixio_mic).set_beam_enabled(true);
     - lambda: |-
         id(turn_active) = true;
@@ -396,8 +415,8 @@ voice_assistant:
     - lambda: id(voice_assistant_phase) = ${voice_assist_listening_for_command_phase_id};
     - script.execute: control_leds
   on_stt_vad_end:
-    # the beam stays on the direction of the speaker, but no longer follows the answer from the speaker
-    - lambda: id(matrixio_mic).set_beam_tracking(false);
+    # the beam is replaced by the thinking pulse in the direction of the speaker (-1: no direction known)
+    - lambda: id(thinking_led) = id(matrixio_mic).freeze_beam();
     - lambda: id(voice_assistant_phase) = ${voice_assist_thinking_phase_id};
     - script.execute: control_leds
   on_intent_progress:
@@ -545,7 +564,8 @@ script:
           id: voice_assistant_leds
           effect: "Listening For Command"
 
-  # Thinking: the spin stops, the LEDs at the top and the bottom pulse
+  # Thinking: the spin stops, the beam (three LEDs towards the speaker) and the opposite LED pulse; the LEDs at the
+  # top and the bottom if no direction is known
   - id: control_leds_thinking_phase
     then:
       - light.turn_on:
