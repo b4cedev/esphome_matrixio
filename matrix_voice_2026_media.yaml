@@ -154,7 +154,10 @@ number:
 
 voice_assistant:
   id: va
-  microphone: matrixio_mic
+  microphone:
+    microphone: matrixio_mic
+    # The microphone is very quiet (see matrix_voice_2026.yaml): +12 dB
+    gain_factor: 4
   # the answers are played through the media player (announcement pipeline), which also ducks the media
   media_player: matrixio_media_player
 
