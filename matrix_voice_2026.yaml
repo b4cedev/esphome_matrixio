@@ -152,7 +152,12 @@ interval:
 
 voice_assistant:
   id: va
-  microphone: matrixio_mic
+  microphone:
+    microphone: matrixio_mic
+    # The microphone is very quiet (speech at -42..-50 dBFS RMS, peaks at -22..-30 dBFS, measured on the audio Home
+    # Assistant received). Speech to text and the wake word work better with a normal level: +12 dB, peaks stay below
+    # -9 dBFS.
+    gain_factor: 4
   speaker: matrixio_speaker_hp
 
   on_listening:
