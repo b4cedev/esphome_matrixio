@@ -401,22 +401,43 @@ void Microphone::show_beam_(const DirectionResult &result, bool detected) {
   uint8_t overlay[NUMBER_OF_LEDS * 4];
   memset(overlay, 0, sizeof(overlay));
   if (this->beam_level_ > 0.02f) {
-    // fractional LED position of the angle
-    float position = this->beam_angle_ / (360.0f / NUMBER_OF_LEDS);
-    if (this->led_reverse_) position = -position;
-    position += this->led_offset_;
-    for (int led = 0; led < NUMBER_OF_LEDS; led++) {
-      // circular distance between the LED and the beam position, in LEDs
-      float distance = std::fmod(position - led + 2.0f * NUMBER_OF_LEDS, (float) NUMBER_OF_LEDS);
-      distance = std::min(distance, NUMBER_OF_LEDS - distance);
-      const float weight = std::max(0.0f, 1.0f - distance / 1.5f);
-      overlay[led * 4 + 3] = static_cast<uint8_t>(weight * this->beam_level_ * 150.0f);  // white
+    // the LED in the direction of the sound at full colour, its neighbours at half; fades out with the level
+    const float alpha = std::min(1.0f, this->beam_level_ / 0.6f);
+    const int centre = this->beam_led_();
+    for (int offset = -1; offset <= 1; offset++) {
+      const int led = (centre + offset + NUMBER_OF_LEDS) % NUMBER_OF_LEDS;
+      const float weight = alpha * (offset == 0 ? 1.0f : 0.5f);
+      for (int channel = 0; channel < 4; channel++) {
+        overlay[led * 4 + channel] = static_cast<uint8_t>(weight * this->beam_color_[channel]);
+      }
     }
   }
   if (memcmp(overlay, this->overlay_, sizeof(overlay)) != 0) {
     memcpy(this->overlay_, overlay, sizeof(overlay));
     this->beam_light_->set_overlay(this->overlay_);
   }
+}
+
+// The Everloop LED (0..17) at the beam direction
+int Microphone::beam_led_() const {
+  float position = this->beam_angle_ / (360.0f / NUMBER_OF_LEDS);
+  if (this->led_reverse_) position = -position;
+  position += this->led_offset_;
+  const int led = static_cast<int>(std::floor(position + 0.5f));
+  return ((led % NUMBER_OF_LEDS) + NUMBER_OF_LEDS) % NUMBER_OF_LEDS;
+}
+
+int Microphone::freeze_beam() {
+  const bool shown = this->beam_light_ != nullptr && this->beam_level_ > 0.2f;
+  const int led = shown ? this->beam_led_() : -1;
+  this->beam_enabled_ = false;
+  this->beam_tracking_ = false;
+  this->beam_level_ = 0.0f;
+  if (this->beam_light_ != nullptr) {
+    memset(this->overlay_, 0, sizeof(this->overlay_));
+    this->beam_light_->set_overlay(this->overlay_);
+  }
+  return led;
 }
 
 void Microphone::start_() {

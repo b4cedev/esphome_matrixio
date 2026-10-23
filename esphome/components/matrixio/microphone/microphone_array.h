@@ -57,6 +57,17 @@ public:
   // Show the beam (and follow new directions). While visible but not tracking, the last direction is held.
   void set_beam_enabled(bool enabled);
   void set_beam_tracking(bool tracking) { this->beam_tracking_ = tracking; }
+  // Colour of the beam, 0..255 per channel (default: the white LED). The beam is the LED in the direction of the sound
+  // at full colour and its two neighbours at half.
+  void set_beam_color(uint8_t red, uint8_t green, uint8_t blue) {
+    this->beam_color_[0] = red;
+    this->beam_color_[1] = green;
+    this->beam_color_[2] = blue;
+    this->beam_color_[3] = 0;
+  }
+  // Switch the beam off at once and return its LED (0..17, counting like the Everloop), or -1 if no beam was shown.
+  // For animations that take over the direction, e.g. the thinking pulse.
+  int freeze_beam();
   void set_hold_time_ms(uint32_t ms) { this->active_hold_ms_ = ms; }
   // Extra level of the stream for consumers, in dB, can be changed at runtime
   void set_gain_db(float db) { this->software_gain_ = std::pow(10.0f, db / 20.0f); }
@@ -90,6 +101,7 @@ private:
   void beamform_();
   void apply_gain_();
   void handle_result_(const DirectionResult &result);
+  int beam_led_() const;
   void show_beam_(const DirectionResult &result, bool detected);
   void publish_direction_(const DirectionResult &result, bool detected);
   static void direction_task_(void *arg);
@@ -153,6 +165,7 @@ private:
   float beam_level_db_{9.0f};
   float led_offset_{8.5f};
   bool led_reverse_{true};
+  uint8_t beam_color_[4]{0, 0, 0, 150};  // R, G, B, W
   float beam_angle_{0.0f};
   float beam_level_{0.0f};
   uint8_t overlay_[NUMBER_OF_LEDS * 4]{};
