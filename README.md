@@ -13,6 +13,8 @@ It allows to use a Matrixio-Voice as a satellite for [Home Assistant](https://ww
 It can also be used as a media player for Home Assistant, built on ESPHome's native `speaker` media player
 (see `examples/matrixio_media_player.yaml`). Further configuration files can be found in the 'examples' folder.
 
+**Using the ESPHome 2026 port from this fork:** see [docs/fork.md](docs/fork.md).
+
 Older ESPHome versions (including 2023.x) and the `adf_pipeline` platform (`gnumpi/esphome_audio`) are no longer supported.
 
 Right now, only one microphone of the array is used. I might add a beamforming in the future.
