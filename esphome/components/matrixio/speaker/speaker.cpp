@@ -23,10 +23,6 @@ static const uint32_t POLL_INTERVAL_MS = 10;
 static const int16_t DIAG_ACTIVE_PEAK = 200;
 // Safety margin that keeps the FIFO from ever becoming completely full (see get_fpga_fifo_fill_()).
 static const uint32_t FIFO_MARGIN_WORDS = 64;
-// Changing the PAM8019 mode pops on the headphone output, so the output is switched while the amplifier is muted:
-// mute, wait, switch, wait, unmute.
-static const uint32_t OUTPUT_SWITCH_MUTE_MS = 30;
-static const uint32_t OUTPUT_SWITCH_SETTLE_MS = 100;
 
 void Speaker::setup() {
   ESP_LOGCONFIG(TAG, "Setting up MatrixIO Speaker...");
@@ -333,31 +329,17 @@ void Speaker::flush_fpga_fifo_() {
 }
 
 void Speaker::set_output(OutputSelector output_selector) {
-  // Restored select/number values arrive before setup(), which writes all settings itself.
-  if (!this->is_ready()) {
-    this->output_ = output_selector;
-    return;
-  }
-  if (output_selector == this->output_)
-    return;
   this->output_ = output_selector;
-  this->cancel_timeout("output_unmute");
-  this->switching_output_ = true;
-  this->write_mute_();
-  this->set_timeout("output_switch", OUTPUT_SWITCH_MUTE_MS, [this]() {
+  // Restored select/number values arrive before setup(), which writes all settings itself.
+  if (this->is_ready())
     this->write_output_();
-    this->set_timeout("output_unmute", OUTPUT_SWITCH_SETTLE_MS, [this]() {
-      this->switching_output_ = false;
-      this->write_mute_();
-    });
-  });
 }
 
 void Speaker::write_output_() { this->conf_write(11, this->output_); }
 
 void Speaker::write_mute_() {
   // The lowest volume of the amplifier (DC volume pin) is still audible, so 0 % uses its mute pin.
-  bool mute = this->mute_state_ || this->volume_ <= 0.0f || this->switching_output_;
+  bool mute = this->mute_state_ || this->volume_ <= 0.0f;
   this->conf_write(10, mute ? kMute : kUnMute);
 }
 
