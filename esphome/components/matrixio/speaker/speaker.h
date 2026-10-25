@@ -52,7 +52,9 @@ class Speaker : public speaker::Speaker, public matrixio::WishboneDevice, public
   void set_mute_state(bool mute_state) override;
 
   void set_initial_volume(uint8_t volume_percentage) { this->volume_ = volume_percentage / 100.0f; }
-  void set_output(OutputSelector output_selector) { this->output_ = output_selector; }
+  /// Selects headphone or speakers; can be changed at runtime (written to the FPGA right away).
+  void set_output(OutputSelector output_selector);
+  OutputSelector get_output() const { return this->output_; }
   /// Playback stops after this many milliseconds without new audio (100..10000).
   void set_idle_timeout(uint32_t timeout_ms);
   uint32_t get_idle_timeout() const { return this->idle_timeout_ms_; }
