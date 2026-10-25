@@ -458,6 +458,7 @@ script:
           effect: "Twinkle"
 
   # Microphone muted: whole ring dimmed red, without effect (the twinkle means "no connection")
+  # The Everloop LEDs are RGBW and without an effect the white channel shows too, so turn it off.
   - id: control_leds_muted_state
     then:
       - light.turn_on:
@@ -465,6 +466,7 @@ script:
           red: 100%
           green: 0%
           blue: 0%
+          white: 0%
           id: voice_assistant_leds
           effect: "none"
 
