@@ -680,3 +680,7 @@ switch:
     turn_off_action:
       - voice_assistant.stop:
       - script.execute: control_leds
+
+button:
+  - platform: restart
+    name: "Restart"
