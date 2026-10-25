@@ -55,13 +55,48 @@ microphone:
 
 speaker:
   - platform: matrixio
-    id: matrixio_speaker_hp
-    # [headphone,speakers], default: headphone
-    audio_out: headphone
-    # 0..100, in percent, default: 80
-    volume: 90
+    id: matrixio_speaker
+    # Output and volume are set at runtime by the "Audio output" select and the "Speaker volume" number below.
+
+select:
+  # Headphone jack or the speaker connectors (class-D amplifier), only one is active at a time
+  - platform: template
+    name: "Audio output"
+    id: audio_output
+    entity_category: config
+    options:
+      - Headphone
+      - Speakers
+    initial_option: Headphone
+    optimistic: true
+    restore_value: true
+    # Only on a change from HA, not on boot: start the new output at a safe volume, HA shows the slider jump.
+    # Runs before on_value, so the volume is already down when the output switches.
+    set_action:
+      - number.set:
+          id: speaker_volume
+          value: 30
+    on_value:
+      # fires on boot (restored value) and on every change from HA
+      - lambda: |-
+          id(matrixio_speaker).set_output(x == "Speakers" ? matrixio::kSpeaker : matrixio::kHeadPhone);
 
 number:
+  - platform: template
+    name: "Speaker volume"
+    id: speaker_volume
+    unit_of_measurement: "%"
+    mode: slider
+    min_value: 0
+    max_value: 100
+    step: 1
+    initial_value: 90
+    optimistic: true
+    restore_value: true
+    on_value:
+      # fires on boot (restored value) and on every change from HA
+      - lambda: id(matrixio_speaker).set_volume(x / 100.0f);
+
   # Playback ends (LED/wake word come back) this long after the last audio.
   # Too low can cut off a response when the stream stalls (WiFi, slow TTS).
   - platform: template
@@ -78,7 +113,7 @@ number:
     restore_value: true
     on_value:
       # fires on boot (restored value) and on every change from HA
-      - lambda: id(matrixio_speaker_hp).set_idle_timeout((uint32_t) x);
+      - lambda: id(matrixio_speaker).set_idle_timeout((uint32_t) x);
 
 globals:
   # true from the wake word until the end of the voice assistant turn
@@ -112,7 +147,7 @@ voice_assistant:
     # Assistant received). Speech to text and the wake word work better with a normal level: +12 dB, peaks stay below
     # -9 dBFS.
     gain_factor: 4
-  speaker: matrixio_speaker_hp
+  speaker: matrixio_speaker
 
   on_listening:
     - lambda: id(turn_active) = true;
