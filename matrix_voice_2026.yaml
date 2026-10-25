@@ -416,6 +416,7 @@ interval:
           condition:
             and:
               - switch.is_on: use_wake_word
+              - switch.is_off: mute
               - lambda: 'return !id(turn_active);'
               - voice_assistant.connected:
           then:
@@ -503,7 +504,9 @@ voice_assistant:
         id(voice_assistant_phase) = ${voice_assist_idle_phase_id};
     - if:
         condition:
-          switch.is_on: use_wake_word
+          and:
+            - switch.is_on: use_wake_word
+            - switch.is_off: mute
         then:
           - voice_assistant.start_continuous:
     - script.execute: control_leds
@@ -525,6 +528,8 @@ script:
             id(control_leds_init_state).execute();
           } else if (!id(wifi_id).is_connected() || !id(api_id).is_connected()) {
             id(control_leds_no_ha_connection_state).execute();
+          } else if (id(mute).state && id(voice_assistant_phase) == ${voice_assist_idle_phase_id}) {
+            id(control_leds_muted_state).execute();
           } else if (id(voice_assistant_phase) == ${voice_assist_waiting_for_command_phase_id}) {
             id(control_leds_waiting_for_command_phase).execute();
           } else if (id(voice_assistant_phase) == ${voice_assist_listening_for_command_phase_id}) {
@@ -574,6 +579,17 @@ script:
           blue: 0%
           id: voice_assistant_leds
           effect: "Twinkle"
+
+  # Microphone muted: whole ring dimmed red, without effect (the twinkle means "no connection")
+  - id: control_leds_muted_state
+    then:
+      - light.turn_on:
+          brightness: 20%
+          red: 100%
+          green: 0%
+          blue: 0%
+          id: voice_assistant_leds
+          effect: "none"
 
   # Idle: nothing, or the colour of the LED Ring light if the user turned it on
   - id: control_leds_idle_phase
@@ -641,6 +657,28 @@ script:
           effect: "Twinkle"
 
 switch:
+  # Stops the voice assistant, e.g. by an automation while the TV runs. The direction sensors keep working, they use
+  # the microphones on the device only.
+  - platform: template
+    name: 'Mute'
+    id: mute
+    icon: mdi:microphone-off
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - voice_assistant.stop
+      - script.execute: control_leds
+    on_turn_off:
+      - if:
+          condition:
+            and:
+              - switch.is_on: use_wake_word
+              - voice_assistant.connected:
+              - not:
+                  - voice_assistant.is_running
+          then:
+            - voice_assistant.start_continuous
+      - script.execute: control_leds
   # Send the delay-and-sum of all microphones, steered at the sound direction, to the voice assistant
   - platform: template
     name: 'Beamforming'
@@ -662,8 +700,10 @@ switch:
       - lambda: id(va).set_use_wake_word(true);
       - if:
           condition:
-            not:
-              - voice_assistant.is_running
+            and:
+              - switch.is_off: mute
+              - not:
+                  - voice_assistant.is_running
           then:
             - voice_assistant.start_continuous
       - script.execute: control_leds
@@ -674,8 +714,12 @@ switch:
   - platform: template
     name: "Start Listening"
     turn_on_action:
-      - voice_assistant.start:
-          silence_detection: false
+      - if:
+          condition:
+            switch.is_off: mute
+          then:
+            - voice_assistant.start:
+                silence_detection: false
 
     turn_off_action:
       - voice_assistant.stop:
