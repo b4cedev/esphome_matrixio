@@ -337,7 +337,11 @@ void Speaker::set_output(OutputSelector output_selector) {
 
 void Speaker::write_output_() { this->conf_write(11, this->output_); }
 
-void Speaker::write_mute_() { this->conf_write(10, this->mute_state_ ? kMute : kUnMute); }
+void Speaker::write_mute_() {
+  // The lowest volume of the amplifier (DC volume pin) is still audible, so 0 % uses its mute pin.
+  bool mute = this->mute_state_ || this->volume_ <= 0.0f;
+  this->conf_write(10, mute ? kMute : kUnMute);
+}
 
 void Speaker::set_mute_state(bool mute_state) {
   this->mute_state_ = mute_state;
@@ -370,8 +374,10 @@ uint32_t Speaker::read_pcm_sampling_frequency() {
 
 void Speaker::set_volume(float volume) {
   this->volume_ = std::min(1.0f, std::max(0.0f, volume));
-  if (this->is_ready())
+  if (this->is_ready()) {
     this->write_volume_();
+    this->write_mute_();
+  }
 }
 
 void Speaker::write_volume_() {
