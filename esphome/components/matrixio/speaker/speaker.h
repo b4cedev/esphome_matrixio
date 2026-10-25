@@ -100,8 +100,6 @@ class Speaker : public speaker::Speaker, public matrixio::WishboneDevice, public
 
   uint32_t pcm_sampling_frequency_{16000};
   OutputSelector output_;
-  // the amplifier is muted while the output changes (see set_output())
-  bool switching_output_{false};
 };
 
 }  // namespace matrixio
