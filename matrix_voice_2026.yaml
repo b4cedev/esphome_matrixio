@@ -265,3 +265,7 @@ switch:
     turn_off_action:
       - voice_assistant.stop:
       - script.execute: reset_led
+
+button:
+  - platform: restart
+    name: "Restart"
