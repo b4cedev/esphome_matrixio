@@ -3,8 +3,9 @@
 This fork (`b4cedev/esphome_matrixio`) carries the port of the component to ESPHome 2026.9.1 plus a few
 additions that the original project (`gnumpi/esphome_matrixio`) does not have yet: voice assistant LED
 patterns like the Home Assistant Voice PE, sound direction (DOA) and a direction beam on the ring, a
-microphone gain, and speaker fixes (no click at the start of an answer). The default branch
-`integration/voice-2026` merges all of it. Stable states are tagged, e.g. `v2026.9.1-fork.1`.
+microphone gain, speaker fixes (no click at the start of an answer), the audio output (headphone jack or
+speaker connectors) and volume selectable in Home Assistant, and a microphone mute switch. The default branch
+`integration/voice-2026` merges all of it. Stable states are tagged, e.g. `v2026.9.1-fork.2`.
 
 Use a **tag**, not the branch: the branch moves with every push, a tag keeps your build reproducible.
 
@@ -33,7 +34,7 @@ Use a **tag**, not the branch: the branch moves with every push, a tag keeps you
           - source:
               type: git
               url: https://github.com/b4cedev/esphome_matrixio
-              ref: v2026.9.1-fork.1
+              ref: v2026.9.1-fork.2
             components: [matrixio]
 
 4. Install exactly the ESPHome version the component is pinned to (see the README) in a virtualenv and build:
